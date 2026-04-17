@@ -1,0 +1,5 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+akshare>=1.18
+pandas>=2.0
+python-dateutil>=2.9

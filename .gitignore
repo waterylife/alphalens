@@ -19,6 +19,19 @@ env/
 .coverage
 htmlcov/
 
+# Cache
+.cache/
+*.sqlite
+
+# Node / Next.js
+node_modules/
+.next/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/node_modules/
+frontend/.turbo/
+
 # OS
 .DS_Store
 Thumbs.db
@@ -26,6 +39,11 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Env
+.env
+.env.local
+.env*.local
 
 # Output
 *.png
