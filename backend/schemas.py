@@ -59,6 +59,51 @@ class YieldSpreadSeries(BaseModel):
     points: list[dict]  # {date, dividend_yield, yield_10y, spread}
 
 
+class BenchmarkMeta(BaseModel):
+    code: str
+    name: str
+
+
+class RangeStats(BaseModel):
+    return_pct: float | None
+    annualized_pct: float | None
+    max_drawdown: float | None
+    max_gain: float | None
+    volatility: float | None
+
+
+class ComparePoint(BaseModel):
+    date: str
+    close: float
+
+
+class CompareSeries(BaseModel):
+    code: str
+    name: str
+    points: list[ComparePoint]
+    stats: RangeStats
+
+
+class YearlyRow(BaseModel):
+    year: int
+    index_return: float | None
+    benchmark_return: float | None
+    index_volatility: float | None
+    benchmark_volatility: float | None
+    index_max_drawdown: float | None
+    benchmark_max_drawdown: float | None
+    index_max_gain: float | None
+    benchmark_max_gain: float | None
+
+
+class BenchmarkCompare(BaseModel):
+    start: str
+    end: str
+    index: CompareSeries
+    benchmark: CompareSeries
+    yearly: list[YearlyRow]
+
+
 class ConstituentItem(BaseModel):
     stock_code: str
     stock_name: str

@@ -35,36 +35,6 @@ DIVIDEND_INDICES: dict[str, IndexConfig] = {
         lg_symbol=None,
         description="沪深两市股息率最高、分红最稳定的100只股票，股息率加权",
     ),
-    "000015": IndexConfig(
-        code="000015",
-        name="上证红利",
-        full_name="上证红利指数",
-        exchange="sh",
-        tx_symbol="sh000015",
-        csindex_symbol="000015",
-        lg_symbol="上证红利",
-        description="上海市场现金股息率高、分红稳定的50只股票",
-    ),
-    "399324": IndexConfig(
-        code="399324",
-        name="深证红利",
-        full_name="深证红利指数",
-        exchange="sz",
-        tx_symbol="sz399324",
-        csindex_symbol="399324",
-        lg_symbol="深证红利",
-        description="深圳市场分红能力强、分红水平稳定的40只股票",
-    ),
-    "000825": IndexConfig(
-        code="000825",
-        name="红利低波",
-        full_name="中证红利低波动指数",
-        exchange="sh",
-        tx_symbol="sh000825",
-        csindex_symbol="000825",
-        lg_symbol=None,
-        description="高股息、低波动50只股票，防御性更强",
-    ),
     "930955": IndexConfig(
         code="930955",
         name="红利低波100",
@@ -75,6 +45,16 @@ DIVIDEND_INDICES: dict[str, IndexConfig] = {
         lg_symbol=None,
         description="流动性好、连续分红、股息率高、波动较低的100只股票",
     ),
+    "931233": IndexConfig(
+        code="931233",
+        name="港股通央企红利",
+        full_name="中证港股通央企红利指数",
+        exchange="sh",
+        tx_symbol="sh931233",
+        csindex_symbol="931233",
+        lg_symbol=None,
+        description="港股通范围内央企背景、股息率较高的股票，反映央企红利资产表现",
+    ),
 }
 
 
@@ -82,3 +62,26 @@ def get_index(code: str) -> IndexConfig:
     if code not in DIVIDEND_INDICES:
         raise KeyError(f"Index {code} is not supported. Available: {list(DIVIDEND_INDICES)}")
     return DIVIDEND_INDICES[code]
+
+
+# ------------------------------ Benchmarks ------------------------------
+
+
+@dataclass(frozen=True)
+class BenchmarkConfig:
+    code: str
+    name: str
+    tx_symbol: str
+
+
+BENCHMARKS: dict[str, BenchmarkConfig] = {
+    "000300": BenchmarkConfig(code="000300", name="沪深300", tx_symbol="sh000300"),
+    "000985": BenchmarkConfig(code="000985", name="中证全指", tx_symbol="sh000985"),
+    "000016": BenchmarkConfig(code="000016", name="上证50", tx_symbol="sh000016"),
+}
+
+
+def get_benchmark(code: str) -> BenchmarkConfig:
+    if code not in BENCHMARKS:
+        raise KeyError(f"Benchmark {code} is not supported. Available: {list(BENCHMARKS)}")
+    return BENCHMARKS[code]

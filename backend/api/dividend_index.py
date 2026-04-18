@@ -5,15 +5,21 @@ from __future__ import annotations
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
-from backend.config import DIVIDEND_INDICES, get_index
+from backend.config import BENCHMARKS, DIVIDEND_INDICES, get_benchmark, get_index
 from backend.data import akshare_client as ak_client
 from backend.schemas import (
+    BenchmarkCompare,
+    BenchmarkMeta,
+    ComparePoint,
+    CompareSeries,
     Constituents,
     ConstituentItem,
     IndexMeta,
     Overview,
+    RangeStats,
     TimeSeriesPoint,
     ValuationSeries,
+    YearlyRow,
     YieldSpreadSeries,
 )
 
@@ -69,7 +75,7 @@ def get_overview(code: str) -> Overview:
     except Exception:
         pass
 
-    # Percentiles — requires long history
+    # Percentiles — prefer legulegu long history, fall back to csindex (short window)
     div_pct = pe_pct = None
     if cfg.lg_symbol:
         try:
@@ -79,11 +85,13 @@ def get_overview(code: str) -> Overview:
         except Exception:
             pass
 
-    # Dividend yield percentile — use csindex history if available, else skip
     try:
         val_hist = ak_client.index_valuation_csindex(cfg.csindex_symbol)
-        if not val_hist.empty and div_yield is not None:
-            div_pct = _percentile_rank(val_hist["dividend_yield"].dropna(), div_yield)
+        if not val_hist.empty:
+            if div_yield is not None:
+                div_pct = _percentile_rank(val_hist["dividend_yield"].dropna(), div_yield)
+            if pe_pct is None and pe_ttm is not None:
+                pe_pct = _percentile_rank(val_hist["pe_ttm"].dropna(), pe_ttm)
     except Exception:
         pass
 
@@ -115,6 +123,71 @@ def get_price_history(
         "code": cfg.code,
         "points": df.to_dict(orient="records"),
     }
+
+
+@router.get("/benchmarks", response_model=list[BenchmarkMeta])
+def list_benchmarks() -> list[BenchmarkMeta]:
+    return [BenchmarkMeta(code=b.code, name=b.name) for b in BENCHMARKS.values()]
+
+
+@router.get("/indices/{code}/benchmark-compare", response_model=BenchmarkCompare)
+def get_benchmark_compare(
+    code: str,
+    benchmark: str = Query(default="000300"),
+    start: str | None = Query(default=None),
+    end: str | None = Query(default=None),
+) -> BenchmarkCompare:
+    cfg = _get_or_404(code)
+    try:
+        bcfg = get_benchmark(benchmark)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unsupported benchmark: {benchmark}")
+
+    idx_df = ak_client.index_daily_price(cfg.tx_symbol)[["date", "close"]]
+    bm_df = ak_client.index_daily_price(bcfg.tx_symbol)[["date", "close"]]
+
+    # Align on intersection of trading days (handles holiday differences)
+    merged = pd.merge(idx_df, bm_df, on="date", how="inner", suffixes=("_idx", "_bm"))
+    merged = merged.sort_values("date").reset_index(drop=True)
+
+    if merged.empty:
+        raise HTTPException(status_code=500, detail="No overlapping data for index & benchmark")
+
+    if start:
+        merged = merged[merged["date"] >= start]
+    if end:
+        merged = merged[merged["date"] <= end]
+
+    if merged.empty:
+        raise HTTPException(status_code=400, detail="No data in selected range")
+
+    actual_start = str(merged.iloc[0]["date"])
+    actual_end = str(merged.iloc[-1]["date"])
+
+    idx_closes = merged["close_idx"].astype(float).values
+    bm_closes = merged["close_bm"].astype(float).values
+    dates = merged["date"].tolist()
+
+    idx_points = [ComparePoint(date=d, close=float(c)) for d, c in zip(dates, idx_closes)]
+    bm_points = [ComparePoint(date=d, close=float(c)) for d, c in zip(dates, bm_closes)]
+
+    return BenchmarkCompare(
+        start=actual_start,
+        end=actual_end,
+        index=CompareSeries(
+            code=cfg.code,
+            name=cfg.name,
+            points=idx_points,
+            stats=_range_stats(idx_closes, dates),
+        ),
+        benchmark=CompareSeries(
+            code=bcfg.code,
+            name=bcfg.name,
+            points=bm_points,
+            stats=_range_stats(bm_closes, dates),
+        ),
+        yearly=_yearly_rows(merged),
+    )
 
 
 @router.get("/indices/{code}/valuation-history", response_model=ValuationSeries)
@@ -247,6 +320,96 @@ def _to_series(df: pd.DataFrame, date_col: str, value_col: str) -> list[TimeSeri
         v = _to_float(row[value_col])
         out.append(TimeSeriesPoint(date=row[date_col], value=v))
     return out
+
+
+def _range_stats(closes, dates) -> RangeStats:
+    import numpy as np
+
+    closes = list(closes)
+    if len(closes) < 2:
+        return RangeStats(
+            return_pct=None, annualized_pct=None,
+            max_drawdown=None, max_gain=None, volatility=None,
+        )
+    s = pd.Series(closes).astype(float)
+    first, last = s.iloc[0], s.iloc[-1]
+
+    ret = (last / first - 1) * 100
+
+    d0 = pd.to_datetime(dates[0])
+    dN = pd.to_datetime(dates[-1])
+    years = max((dN - d0).days / 365.25, 1e-9)
+    ann = ((last / first) ** (1 / years) - 1) * 100 if first > 0 else None
+
+    dr = s.pct_change().dropna()
+    vol = float(dr.std() * np.sqrt(252) * 100) if len(dr) > 1 else None
+
+    running_max = s.cummax()
+    dd = (s - running_max) / running_max * 100
+    max_dd = float(dd.min())
+
+    running_min = s.cummin()
+    gains = (s - running_min) / running_min * 100
+    max_g = float(gains.max())
+
+    return RangeStats(
+        return_pct=round(float(ret), 2),
+        annualized_pct=round(float(ann), 2) if ann is not None else None,
+        max_drawdown=round(max_dd, 2),
+        max_gain=round(max_g, 2),
+        volatility=round(vol, 2) if vol is not None else None,
+    )
+
+
+def _yearly_rows(merged: pd.DataFrame) -> list[YearlyRow]:
+    import numpy as np
+
+    if merged.empty:
+        return []
+    df = merged.copy()
+    df["year"] = pd.to_datetime(df["date"]).dt.year
+    years_sorted = sorted(df["year"].unique().tolist(), reverse=True)
+
+    rows: list[YearlyRow] = []
+    for y in years_sorted:
+        ydf = df[df["year"] == y]
+        if len(ydf) < 2:
+            continue
+
+        # Start reference: previous year's last close if available
+        prev = df[df["year"] < y]
+        prev_last_idx = prev.iloc[-1]["close_idx"] if not prev.empty else ydf.iloc[0]["close_idx"]
+        prev_last_bm = prev.iloc[-1]["close_bm"] if not prev.empty else ydf.iloc[0]["close_bm"]
+        end_idx = ydf.iloc[-1]["close_idx"]
+        end_bm = ydf.iloc[-1]["close_bm"]
+
+        def stats(closes_list):
+            s = pd.Series(closes_list).astype(float)
+            dr = s.pct_change().dropna()
+            vol = float(dr.std() * np.sqrt(252) * 100) if len(dr) > 1 else None
+            rm = s.cummax()
+            dd = float(((s - rm) / rm * 100).min())
+            rn = s.cummin()
+            mg = float(((s - rn) / rn * 100).max())
+            return vol, dd, mg
+
+        idx_series = [prev_last_idx] + ydf["close_idx"].tolist() if not prev.empty else ydf["close_idx"].tolist()
+        bm_series = [prev_last_bm] + ydf["close_bm"].tolist() if not prev.empty else ydf["close_bm"].tolist()
+        ivol, idd, img = stats(idx_series)
+        bvol, bdd, bmg = stats(bm_series)
+
+        rows.append(YearlyRow(
+            year=int(y),
+            index_return=round(float((end_idx / prev_last_idx - 1) * 100), 2),
+            benchmark_return=round(float((end_bm / prev_last_bm - 1) * 100), 2),
+            index_volatility=round(ivol, 2) if ivol is not None else None,
+            benchmark_volatility=round(bvol, 2) if bvol is not None else None,
+            index_max_drawdown=round(idd, 2),
+            benchmark_max_drawdown=round(bdd, 2),
+            index_max_gain=round(img, 2),
+            benchmark_max_gain=round(bmg, 2),
+        ))
+    return rows
 
 
 def _percentile_rank(series: pd.Series, value: float) -> float:

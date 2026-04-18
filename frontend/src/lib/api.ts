@@ -72,6 +72,51 @@ export interface Constituents {
   items: ConstituentItem[];
 }
 
+export interface BenchmarkMeta {
+  code: string;
+  name: string;
+}
+
+export interface RangeStats {
+  return_pct: number | null;
+  annualized_pct: number | null;
+  max_drawdown: number | null;
+  max_gain: number | null;
+  volatility: number | null;
+}
+
+export interface ComparePoint {
+  date: string;
+  close: number;
+}
+
+export interface CompareSeries {
+  code: string;
+  name: string;
+  points: ComparePoint[];
+  stats: RangeStats;
+}
+
+export interface YearlyRow {
+  year: number;
+  index_return: number | null;
+  benchmark_return: number | null;
+  index_volatility: number | null;
+  benchmark_volatility: number | null;
+  index_max_drawdown: number | null;
+  benchmark_max_drawdown: number | null;
+  index_max_gain: number | null;
+  benchmark_max_gain: number | null;
+}
+
+export interface BenchmarkCompare {
+  start: string;
+  end: string;
+  index: CompareSeries;
+  benchmark: CompareSeries;
+  yearly: YearlyRow[];
+}
+
 export const fetcher = async <T,>(url: string): Promise<T> => {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
@@ -89,4 +134,16 @@ export const api = {
     `/api/dividend/indices/${code}/yield-spread?years=${years}`,
   constituents: (code: string, limit = 30) =>
     `/api/dividend/indices/${code}/constituents?limit=${limit}`,
+  benchmarks: () => "/api/dividend/benchmarks",
+  benchmarkCompare: (
+    code: string,
+    benchmark: string,
+    start?: string,
+    end?: string
+  ) => {
+    const qs = new URLSearchParams({ benchmark });
+    if (start) qs.set("start", start);
+    if (end) qs.set("end", end);
+    return `/api/dividend/indices/${code}/benchmark-compare?${qs.toString()}`;
+  },
 };

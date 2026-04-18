@@ -22,18 +22,53 @@ TTL_STATIC = 60 * 60 * 24    # 24h — constituents, metadata
 # --------------------------- Index prices ---------------------------
 
 def index_daily_price(tx_symbol: str) -> pd.DataFrame:
-    """20y+ daily OHLCV for an index from Tencent (most reliable, current).
+    """Daily OHLCV for an index. Tencent first (20y+), falls back to Eastmoney
+    for indices Tencent doesn't cover (e.g. CSI-series like 930955).
 
     Returns columns: date (str ISO), open, high, low, close, volume.
-    Indexed by date.
     """
-    def _fetch() -> pd.DataFrame:
+    def _fetch_tx() -> pd.DataFrame:
         df = ak.stock_zh_index_daily_tx(symbol=tx_symbol)
+        if df is None or df.empty:
+            raise ValueError(f"Tencent returned empty for {tx_symbol}")
         df = df.rename(columns={"amount": "volume"})
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         return df[["date", "open", "high", "low", "close", "volume"]].copy()
 
-    return cache.fetch("index_daily_tx", tx_symbol, TTL_DAILY, _fetch)
+    def _fetch_csindex() -> pd.DataFrame:
+        # Official csindex endpoint — reliable for CSI-series (9xxxxx) indices.
+        code = tx_symbol[2:] if tx_symbol[:2] in ("sh", "sz") else tx_symbol
+        end = dt.date.today().strftime("%Y%m%d")
+        df = ak.stock_zh_index_hist_csindex(symbol=code, start_date="20050101", end_date=end)
+        if df is None or df.empty:
+            raise ValueError(f"csindex returned empty for {code}")
+        df = df.rename(columns={
+            "日期": "date", "开盘": "open", "最高": "high",
+            "最低": "low", "收盘": "close", "成交量": "volume",
+        })
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        return df[["date", "open", "high", "low", "close", "volume"]].copy()
+
+    def _fetch_em() -> pd.DataFrame:
+        code = tx_symbol[2:] if tx_symbol[:2] in ("sh", "sz") else tx_symbol
+        em_symbol = f"csi{code}" if code.startswith("9") else tx_symbol
+        df = ak.stock_zh_index_daily_em(symbol=em_symbol)
+        if df is None or df.empty:
+            raise ValueError(f"Eastmoney returned empty for {em_symbol}")
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        return df[["date", "open", "high", "low", "close", "volume"]].copy()
+
+    def _fetch() -> pd.DataFrame:
+        try:
+            return _fetch_tx()
+        except Exception:
+            pass
+        try:
+            return _fetch_csindex()
+        except Exception:
+            return _fetch_em()
+
+    return cache.fetch("index_daily", tx_symbol, TTL_DAILY, _fetch)
 
 
 # --------------------------- Valuation (csindex, official) ---------------------------
@@ -45,16 +80,17 @@ def index_valuation_csindex(code: str) -> pd.DataFrame:
     """
     def _fetch() -> pd.DataFrame:
         df = ak.stock_zh_index_value_csindex(symbol=code)
+        # csindex convention: 市盈率1/股息率1 = 滚动 (TTM); 市盈率2/股息率2 = 静态
         df = df.rename(columns={
             "日期": "date",
-            "市盈率1": "pe_static",
-            "市盈率2": "pe_ttm",
+            "市盈率1": "pe_ttm",
+            "市盈率2": "pe_static",
             "股息率1": "dividend_yield",
-            "股息率2": "dividend_yield_ttm",
+            "股息率2": "dividend_yield_static",
         })
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         return df[[
-            "date", "pe_static", "pe_ttm", "dividend_yield", "dividend_yield_ttm"
+            "date", "pe_static", "pe_ttm", "dividend_yield", "dividend_yield_static"
         ]].sort_values("date").reset_index(drop=True)
 
     return cache.fetch("index_val_csindex", code, TTL_INTRADAY, _fetch)
