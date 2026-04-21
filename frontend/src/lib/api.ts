@@ -20,9 +20,13 @@ export interface Overview {
   pe_static: number | null;
   dividend_yield: number | null;
   yield_spread_bps: number | null;
-  dividend_yield_percentile: number | null;
-  pe_percentile: number | null;
+  dividend_yield_percentile: Record<ValuationWindow, number | null>;
+  dividend_yield_history_start: string | null;
+  pe_percentile: Record<ValuationWindow, number | null>;
+  pe_history_start: string | null;
 }
+
+export type ValuationWindow = "1y" | "3y" | "5y" | "10y" | "all";
 
 export interface TimeSeriesPoint {
   date: string;

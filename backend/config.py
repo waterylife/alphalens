@@ -16,6 +16,7 @@ class IndexConfig:
     exchange: str           # "sh" or "sz"
     tx_symbol: str          # for stock_zh_index_daily_tx, e.g. "sh000922"
     csindex_symbol: str     # for csindex APIs (usually == code)
+    tr_csindex_symbol: str | None  # csindex total-return counterpart (for deriving long-history DY)
     lg_symbol: str | None   # legulegu name, None if not supported
     description: str
 
@@ -32,6 +33,7 @@ DIVIDEND_INDICES: dict[str, IndexConfig] = {
         exchange="sh",
         tx_symbol="sh000922",
         csindex_symbol="000922",
+        tr_csindex_symbol="H00922",
         lg_symbol=None,
         description="沪深两市股息率最高、分红最稳定的100只股票，股息率加权",
     ),
@@ -42,6 +44,7 @@ DIVIDEND_INDICES: dict[str, IndexConfig] = {
         exchange="sh",
         tx_symbol="sh930955",
         csindex_symbol="930955",
+        tr_csindex_symbol="H20955",
         lg_symbol=None,
         description="流动性好、连续分红、股息率高、波动较低的100只股票",
     ),
@@ -52,6 +55,7 @@ DIVIDEND_INDICES: dict[str, IndexConfig] = {
         exchange="sh",
         tx_symbol="sh931233",
         csindex_symbol="931233",
+        tr_csindex_symbol=None,  # no csindex total-return counterpart published
         lg_symbol=None,
         description="港股通范围内央企背景、股息率较高的股票，反映央企红利资产表现",
     ),
