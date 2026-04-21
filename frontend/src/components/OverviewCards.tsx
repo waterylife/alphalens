@@ -1,6 +1,15 @@
 "use client";
 
-import { Overview } from "@/lib/api";
+import { useState } from "react";
+import { Overview, ValuationWindow } from "@/lib/api";
+
+const VALUATION_WINDOWS: { key: ValuationWindow; label: string }[] = [
+  { key: "1y", label: "1年" },
+  { key: "3y", label: "3年" },
+  { key: "5y", label: "5年" },
+  { key: "10y", label: "10年" },
+  { key: "all", label: "全部" },
+];
 
 function fmt(n: number | null | undefined, digits = 2, suffix = "") {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
@@ -24,7 +33,47 @@ function percentileLabel(p: number | null | undefined, inverted = false) {
   return { text: `中性 ${p.toFixed(0)}%`, cls: "bg-amber-100 text-amber-700" };
 }
 
+function WindowButtons({
+  window: activeWindow,
+  onSelect,
+  available,
+}: {
+  window: ValuationWindow;
+  onSelect: (w: ValuationWindow) => void;
+  available: Record<ValuationWindow, number | null>;
+}) {
+  return (
+    <div className="flex gap-0.5 mt-1">
+      {VALUATION_WINDOWS.map((w) => {
+        const active = w.key === activeWindow;
+        const disabled = available?.[w.key] == null;
+        return (
+          <button
+            key={w.key}
+            onClick={() => !disabled && onSelect(w.key)}
+            disabled={disabled}
+            className={`px-1.5 py-0.5 text-[10px] rounded border transition ${
+              active
+                ? "bg-slate-900 text-white border-slate-900"
+                : disabled
+                ? "bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed"
+                : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+            }`}
+          >
+            {w.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function OverviewCards({ data }: { data: Overview }) {
+  const [peWindow, setPeWindow] = useState<ValuationWindow>("10y");
+  const [dyWindow, setDyWindow] = useState<ValuationWindow>("10y");
+  const pePct = data.pe_percentile?.[peWindow] ?? null;
+  const dyPct = data.dividend_yield_percentile?.[dyWindow] ?? null;
+
   const cards = [
     {
       label: "最新收盘",
@@ -41,11 +90,18 @@ export function OverviewCards({ data }: { data: Overview }) {
       label: "股息率 (TTM)",
       main: fmt(data.dividend_yield, 2, "%"),
       sub: (() => {
-        const p = percentileLabel(data.dividend_yield_percentile, true);
+        const p = percentileLabel(dyPct, true);
         return (
-          <span className={`px-2 py-0.5 text-xs rounded ${p.cls}`}>
-            历史分位 {p.text}
-          </span>
+          <div className="space-y-1.5">
+            <span className={`inline-block px-2 py-0.5 text-xs rounded ${p.cls}`}>
+              {VALUATION_WINDOWS.find((w) => w.key === dyWindow)?.label}分位 {p.text}
+            </span>
+            <WindowButtons
+              window={dyWindow}
+              onSelect={setDyWindow}
+              available={data.dividend_yield_percentile}
+            />
+          </div>
         );
       })(),
     },
@@ -53,11 +109,18 @@ export function OverviewCards({ data }: { data: Overview }) {
       label: "市盈率 (TTM)",
       main: fmt(data.pe_ttm, 2),
       sub: (() => {
-        const p = percentileLabel(data.pe_percentile, false);
+        const p = percentileLabel(pePct, false);
         return (
-          <span className={`px-2 py-0.5 text-xs rounded ${p.cls}`}>
-            历史分位 {p.text}
-          </span>
+          <div className="space-y-1.5">
+            <span className={`inline-block px-2 py-0.5 text-xs rounded ${p.cls}`}>
+              {VALUATION_WINDOWS.find((w) => w.key === peWindow)?.label}分位 {p.text}
+            </span>
+            <WindowButtons
+              window={peWindow}
+              onSelect={setPeWindow}
+              available={data.pe_percentile}
+            />
+          </div>
         );
       })(),
     },

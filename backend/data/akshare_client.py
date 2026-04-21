@@ -96,6 +96,99 @@ def index_valuation_csindex(code: str) -> pd.DataFrame:
     return cache.fetch("index_val_csindex", code, TTL_INTRADAY, _fetch)
 
 
+# --------------------------- Valuation history (csindex, long) ---------------------------
+
+def index_pe_history_csindex(code: str) -> pd.DataFrame:
+    """Long-history PE TTM from csindex 历史行情 endpoint.
+
+    Covers the index from its inception — 3k+ trading days for mature indices
+    like 000922 (中证红利). Only returns date + pe_ttm; csindex does not publish
+    long-history 静态市盈率 or 股息率 through this endpoint.
+
+    Returns columns: date, pe_ttm.
+    """
+    def _fetch() -> pd.DataFrame:
+        end = dt.date.today().strftime("%Y%m%d")
+        df = ak.stock_zh_index_hist_csindex(symbol=code, start_date="20050101", end_date=end)
+        if df is None or df.empty:
+            raise ValueError(f"csindex perf returned empty for {code}")
+        df = df.rename(columns={"日期": "date", "滚动市盈率": "pe_ttm"})
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        return (
+            df[["date", "pe_ttm"]]
+            .dropna(subset=["pe_ttm"])
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+    return cache.fetch("index_pe_csindex", code, TTL_DAILY, _fetch)
+
+
+# --------------------------- Total-return series (csindex, long) ---------------------------
+
+def index_tr_history_csindex(tr_code: str) -> pd.DataFrame:
+    """Long-history close of a csindex total-return index (e.g. H00922).
+
+    Used to derive rolling dividend yield: DY ≈ TR_return / Price_return - 1.
+
+    Returns columns: date, close.
+    """
+    def _fetch() -> pd.DataFrame:
+        end = dt.date.today().strftime("%Y%m%d")
+        df = ak.stock_zh_index_hist_csindex(symbol=tr_code, start_date="20050101", end_date=end)
+        if df is None or df.empty:
+            raise ValueError(f"csindex perf returned empty for {tr_code}")
+        df = df.rename(columns={"日期": "date", "收盘": "close"})
+        df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+        return (
+            df[["date", "close"]]
+            .dropna(subset=["close"])
+            .sort_values("date")
+            .reset_index(drop=True)
+        )
+
+    return cache.fetch("index_tr_csindex", tr_code, TTL_DAILY, _fetch)
+
+
+def index_dividend_yield_history(price_code: str, tr_code: str, window: int = 252) -> pd.DataFrame:
+    """Derived rolling dividend yield from price + total-return csindex series.
+
+    For each trading day t, DY(t) ≈ (TR(t)/TR(t-window)) / (P(t)/P(t-window)) - 1,
+    expressed in percent. With window=252 trading days, this approximates the
+    trailing-12-month dividend yield. Systematic difference from csindex's
+    published 股息率 is ~5-10% (relative), because reinvested-dividend compounding
+    is embedded in the TR series — but the historical *ranking* is faithful.
+
+    Returns columns: date, dividend_yield (percent).
+    """
+    key = f"{price_code}:{tr_code}:{window}"
+
+    def _fetch() -> pd.DataFrame:
+        # Reuse the already-cached price series (from index_daily_price? no — that's
+        # Tencent; use csindex's own close for consistent trading calendar with TR).
+        end = dt.date.today().strftime("%Y%m%d")
+        price_df = ak.stock_zh_index_hist_csindex(
+            symbol=price_code, start_date="20050101", end_date=end
+        )
+        price_df = price_df.rename(columns={"日期": "date", "收盘": "price"})
+        price_df["date"] = pd.to_datetime(price_df["date"]).dt.strftime("%Y-%m-%d")
+        price_df = price_df[["date", "price"]].dropna()
+
+        tr_df = index_tr_history_csindex(tr_code).rename(columns={"close": "tr"})
+
+        m = pd.merge(price_df, tr_df, on="date").sort_values("date").reset_index(drop=True)
+        m["dividend_yield"] = (
+            (m["tr"] / m["tr"].shift(window)) / (m["price"] / m["price"].shift(window)) - 1
+        ) * 100
+        return (
+            m[["date", "dividend_yield"]]
+            .dropna(subset=["dividend_yield"])
+            .reset_index(drop=True)
+        )
+
+    return cache.fetch("index_dy_derived", key, TTL_DAILY, _fetch)
+
+
 # --------------------------- Valuation history (legulegu, 20y) ---------------------------
 
 def index_pe_history_lg(lg_symbol: str) -> pd.DataFrame:

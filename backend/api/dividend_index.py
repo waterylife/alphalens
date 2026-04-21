@@ -75,25 +75,45 @@ def get_overview(code: str) -> Overview:
     except Exception:
         pass
 
-    # Percentiles — prefer legulegu long history, fall back to csindex (short window)
-    div_pct = pe_pct = None
-    if cfg.lg_symbol:
-        try:
-            pe_hist = ak_client.index_pe_history_lg(cfg.lg_symbol)
-            if not pe_hist.empty and pe_ttm is not None:
-                pe_pct = _percentile_rank(pe_hist["pe_ttm"].dropna(), pe_ttm)
-        except Exception:
-            pass
-
+    # PE percentiles across multiple lookback windows — csindex hist is the
+    # authoritative long-history source and works for all our niche indices.
+    pe_pct: dict[str, float | None] = {k: None for k in ("1y", "3y", "5y", "10y", "all")}
+    pe_history_start: str | None = None
     try:
-        val_hist = ak_client.index_valuation_csindex(cfg.csindex_symbol)
-        if not val_hist.empty:
-            if div_yield is not None:
-                div_pct = _percentile_rank(val_hist["dividend_yield"].dropna(), div_yield)
-            if pe_pct is None and pe_ttm is not None:
-                pe_pct = _percentile_rank(val_hist["pe_ttm"].dropna(), pe_ttm)
+        pe_hist_df = ak_client.index_pe_history_csindex(cfg.csindex_symbol)
+        if not pe_hist_df.empty and pe_ttm is not None:
+            pe_pct = _pe_percentiles_by_window(pe_hist_df, pe_ttm)
+            pe_history_start = str(pe_hist_df.iloc[0]["date"])
     except Exception:
         pass
+
+    # Dividend-yield percentile — long history derived from price+TR indices
+    # (falls back to csindex 20-day window if no TR counterpart is configured).
+    div_pct: dict[str, float | None] = {k: None for k in ("1y", "3y", "5y", "10y", "all")}
+    dy_history_start: str | None = None
+    if cfg.tr_csindex_symbol and div_yield is not None:
+        try:
+            dy_hist_df = ak_client.index_dividend_yield_history(
+                cfg.csindex_symbol, cfg.tr_csindex_symbol
+            )
+            if not dy_hist_df.empty:
+                # Rank the derived *current* value (for self-consistency with its
+                # own distribution), not the csindex snapshot, whose methodology
+                # differs slightly.
+                current_derived = float(dy_hist_df.iloc[-1]["dividend_yield"])
+                div_pct = _dy_percentiles_by_window(dy_hist_df, current_derived)
+                dy_history_start = str(dy_hist_df.iloc[0]["date"])
+        except Exception:
+            pass
+    if all(v is None for v in div_pct.values()):
+        # Fallback: csindex 20-day snapshot (better than nothing for 931233)
+        try:
+            val_hist = ak_client.index_valuation_csindex(cfg.csindex_symbol)
+            if not val_hist.empty and div_yield is not None:
+                rank = _percentile_rank(val_hist["dividend_yield"].dropna(), div_yield)
+                div_pct = {"1y": None, "3y": None, "5y": None, "10y": None, "all": rank}
+        except Exception:
+            pass
 
     return Overview(
         code=cfg.code,
@@ -106,7 +126,9 @@ def get_overview(code: str) -> Overview:
         dividend_yield=div_yield,
         yield_spread_bps=yield_spread,
         dividend_yield_percentile=div_pct,
+        dividend_yield_history_start=dy_history_start,
         pe_percentile=pe_pct,
+        pe_history_start=pe_history_start,
     )
 
 
@@ -203,13 +225,22 @@ def get_valuation_history(
     pb_pts: list[TimeSeriesPoint] = []
     div_pts: list[TimeSeriesPoint] = []
 
-    # Long-history PE/PB from legulegu if available
+    # Long-history PE TTM from csindex perf endpoint (all our indices)
+    try:
+        pe_df = ak_client.index_pe_history_csindex(cfg.csindex_symbol)
+        pe_df = pe_df[pe_df["date"] >= cutoff]
+        pe_ttm_pts = _to_series(pe_df, "date", "pe_ttm")
+    except Exception:
+        pass
+
+    # legulegu supplements pe_static/pb if the index is supported
     if cfg.lg_symbol:
         try:
-            pe_df = ak_client.index_pe_history_lg(cfg.lg_symbol)
-            pe_df = pe_df[pe_df["date"] >= cutoff]
-            pe_ttm_pts = _to_series(pe_df, "date", "pe_ttm")
-            pe_static_pts = _to_series(pe_df, "date", "pe_static")
+            lg_df = ak_client.index_pe_history_lg(cfg.lg_symbol)
+            lg_df = lg_df[lg_df["date"] >= cutoff]
+            pe_static_pts = _to_series(lg_df, "date", "pe_static")
+            if not pe_ttm_pts:
+                pe_ttm_pts = _to_series(lg_df, "date", "pe_ttm")
         except Exception:
             pass
         try:
@@ -219,16 +250,25 @@ def get_valuation_history(
         except Exception:
             pass
 
-    # Dividend yield from csindex (short history) — always try
-    try:
-        v_df = ak_client.index_valuation_csindex(cfg.csindex_symbol)
-        v_df = v_df[v_df["date"] >= cutoff]
-        div_pts = _to_series(v_df, "date", "dividend_yield")
-        if not pe_ttm_pts:  # fallback if no legulegu history
-            pe_ttm_pts = _to_series(v_df, "date", "pe_ttm")
-            pe_static_pts = _to_series(v_df, "date", "pe_static")
-    except Exception:
-        pass
+    # Dividend yield — long-history from derived TR series; fallback to csindex snapshot
+    if cfg.tr_csindex_symbol:
+        try:
+            dy_df = ak_client.index_dividend_yield_history(
+                cfg.csindex_symbol, cfg.tr_csindex_symbol
+            )
+            dy_df = dy_df[dy_df["date"] >= cutoff]
+            div_pts = _to_series(dy_df, "date", "dividend_yield")
+        except Exception:
+            pass
+    if not div_pts:
+        try:
+            v_df = ak_client.index_valuation_csindex(cfg.csindex_symbol)
+            v_df = v_df[v_df["date"] >= cutoff]
+            div_pts = _to_series(v_df, "date", "dividend_yield")
+            if not pe_static_pts:
+                pe_static_pts = _to_series(v_df, "date", "pe_static")
+        except Exception:
+            pass
 
     return ValuationSeries(
         code=cfg.code,
@@ -252,9 +292,19 @@ def get_yield_spread(
 
     points: list[dict] = []
     try:
-        val = ak_client.index_valuation_csindex(cfg.csindex_symbol)
-        val = val[val["date"] >= cutoff]
-        merged = pd.merge(val, bond, on="date", how="inner")
+        # Prefer derived long-history DY; fall back to csindex 20-day snapshot
+        if cfg.tr_csindex_symbol:
+            dy_df = ak_client.index_dividend_yield_history(
+                cfg.csindex_symbol, cfg.tr_csindex_symbol
+            )
+            dy_df = dy_df[dy_df["date"] >= cutoff].rename(
+                columns={"dividend_yield": "dividend_yield"}
+            )
+        else:
+            v_df = ak_client.index_valuation_csindex(cfg.csindex_symbol)
+            dy_df = v_df[v_df["date"] >= cutoff][["date", "dividend_yield"]].copy()
+
+        merged = pd.merge(dy_df, bond, on="date", how="inner")
         for _, row in merged.iterrows():
             dy = _to_float(row.get("dividend_yield"))
             y10 = _to_float(row.get("yield_10y"))
@@ -410,6 +460,44 @@ def _yearly_rows(merged: pd.DataFrame) -> list[YearlyRow]:
             benchmark_max_gain=round(bmg, 2),
         ))
     return rows
+
+
+_WINDOW_YEARS: dict[str, int | None] = {
+    "1y": 1,
+    "3y": 3,
+    "5y": 5,
+    "10y": 10,
+    "all": None,
+}
+
+
+def _percentiles_by_window(
+    df: pd.DataFrame, col: str, current: float
+) -> dict[str, float | None]:
+    """Generic multi-window percentile rank helper.
+
+    df must be sorted ascending by 'date' and contain ``col``.
+    Requires ≥100 samples in a window; returns None otherwise.
+    """
+    today = pd.Timestamp.today()
+    out: dict[str, float | None] = {}
+    for key, years in _WINDOW_YEARS.items():
+        if years is None:
+            window = df
+        else:
+            cutoff = (today - pd.DateOffset(years=years)).strftime("%Y-%m-%d")
+            window = df[df["date"] >= cutoff]
+        series = window[col].dropna()
+        out[key] = _percentile_rank(series, current) if len(series) >= 100 else None
+    return out
+
+
+def _pe_percentiles_by_window(pe_df: pd.DataFrame, current: float) -> dict[str, float | None]:
+    return _percentiles_by_window(pe_df, "pe_ttm", current)
+
+
+def _dy_percentiles_by_window(dy_df: pd.DataFrame, current: float) -> dict[str, float | None]:
+    return _percentiles_by_window(dy_df, "dividend_yield", current)
 
 
 def _percentile_rank(series: pd.Series, value: float) -> float:

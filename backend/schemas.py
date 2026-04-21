@@ -28,11 +28,27 @@ class Overview(BaseModel):
     yield_spread_bps: float | None = Field(
         description="dividend_yield - 10Y treasury yield, in percentage points"
     )
-    dividend_yield_percentile: float | None = Field(
-        description="0-100; current dividend yield rank against its own history"
+    dividend_yield_percentile: dict[str, float | None] = Field(
+        default_factory=dict,
+        description=(
+            "0-100 dividend yield percentile by lookback window "
+            "('1y','3y','5y','10y','all'). Higher = cheaper."
+        ),
     )
-    pe_percentile: float | None = Field(
-        description="0-100; current PE TTM rank against its own history (lower=cheaper)"
+    dividend_yield_history_start: str | None = Field(
+        default=None,
+        description="Earliest date available in the derived DY series (ISO date)",
+    )
+    pe_percentile: dict[str, float | None] = Field(
+        default_factory=dict,
+        description=(
+            "0-100 PE TTM percentile rank by lookback window. "
+            "Keys: '1y', '3y', '5y', '10y', 'all'. Lower = cheaper."
+        ),
+    )
+    pe_history_start: str | None = Field(
+        default=None,
+        description="Earliest date available in the long-history PE series (ISO date)",
     )
 
 
