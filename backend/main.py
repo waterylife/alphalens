@@ -6,6 +6,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.dividend_index import router as dividend_router
+from backend.api.hk_tech import router as hktech_router
+from backend.api.us_tech import router as ustech_router
 
 app = FastAPI(
     title="AlphaLens API",
@@ -21,6 +23,8 @@ app.add_middleware(
 )
 
 app.include_router(dividend_router)
+app.include_router(hktech_router)
+app.include_router(ustech_router)
 
 
 @app.get("/api/health")

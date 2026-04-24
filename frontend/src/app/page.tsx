@@ -18,6 +18,10 @@ import {
   RangeKey,
   rangeToDates,
 } from "@/components/TimeRangePicker";
+import { HKTechDashboard } from "@/components/hktech/HKTechDashboard";
+import { USDashboard } from "@/components/ustech/USDashboard";
+
+type Tab = "dividend" | "hktech" | "ustech";
 
 const VALUATION_RANGES = [
   { label: "1年", value: 1 },
@@ -27,6 +31,8 @@ const VALUATION_RANGES = [
 ];
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<Tab>("dividend");
+
   const { data: indices } = useSWR<IndexMeta[]>(api.indices(), fetcher);
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -83,127 +89,156 @@ export default function Home() {
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold">AlphaLens · 红利指数看板</h1>
+            <h1 className="text-xl font-semibold">AlphaLens</h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              价值投资视角 · 估值分位 · 股息率利差 · 成分股透视
+              价值投资视角 · 数据看板
             </p>
           </div>
           <div className="text-xs text-slate-500">
             数据源: akshare (T+1) · 中证指数 / 乐咕乐股 / 腾讯财经
           </div>
         </div>
+
+        {/* Tab nav */}
+        <div className="max-w-7xl mx-auto px-6 flex gap-0">
+          {(
+            [
+              { key: "dividend", label: "红利指数" },
+              { key: "hktech", label: "港股科技" },
+              { key: "ustech", label: "美股科技" },
+            ] as { key: Tab; label: string }[]
+          ).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? "border-slate-900 text-slate-900"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-        <section>
-          <div className="text-xs text-slate-500 mb-2">选择指数</div>
-          {indices ? (
-            <IndexSelector
-              indices={indices}
-              selected={selected || ""}
-              onSelect={setSelected}
-            />
-          ) : (
-            <div className="text-slate-400 text-sm">加载指数列表…</div>
-          )}
-          {current && (
-            <p className="text-sm text-slate-600 mt-3">{current.description}</p>
-          )}
-        </section>
-
-        {selected && overview && (
+      {activeTab === "ustech" ? (
+        <USDashboard />
+      ) : activeTab === "hktech" ? (
+        <HKTechDashboard />
+      ) : (
+        <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
           <section>
-            <OverviewCards data={overview} />
+            <div className="text-xs text-slate-500 mb-2">选择指数</div>
+            {indices ? (
+              <IndexSelector
+                indices={indices}
+                selected={selected || ""}
+                onSelect={setSelected}
+              />
+            ) : (
+              <div className="text-slate-400 text-sm">加载指数列表…</div>
+            )}
+            {current && (
+              <p className="text-sm text-slate-600 mt-3">{current.description}</p>
+            )}
           </section>
-        )}
 
-        {selected && (
-          <>
-            <ChartCard
-              title="指数走势 · 基准对比"
-              description="与基准指数同期走势、收益、回撤、波动率对比"
-              action={
-                <BenchmarkSelector value={benchmark} onChange={setBenchmark} />
-              }
-            >
-              <div className="px-2 pb-2">
-                <TimeRangePicker
-                  value={rangeKey}
-                  customStart={customStart}
-                  customEnd={customEnd}
-                  onChange={handleRangeChange}
-                />
+          {selected && overview && (
+            <section>
+              <OverviewCards data={overview} />
+            </section>
+          )}
+
+          {selected && (
+            <>
+              <ChartCard
+                title="指数走势 · 基准对比"
+                description="与基准指数同期走势、收益、回撤、波动率对比"
+                action={
+                  <BenchmarkSelector value={benchmark} onChange={setBenchmark} />
+                }
+              >
+                <div className="px-2 pb-2">
+                  <TimeRangePicker
+                    value={rangeKey}
+                    customStart={customStart}
+                    customEnd={customEnd}
+                    onChange={handleRangeChange}
+                  />
+                </div>
+
+                {compare ? (
+                  <>
+                    <PriceChart data={compare} />
+                    <StatsBar index={compare.index} benchmark={compare.benchmark} />
+                    <YearlyBreakdownTable
+                      rows={compare.yearly}
+                      indexName={compare.index.name}
+                      benchmarkName={compare.benchmark.name}
+                    />
+                  </>
+                ) : (
+                  <div className="h-80 flex items-center justify-center text-slate-400">
+                    加载中…
+                  </div>
+                )}
+              </ChartCard>
+
+              <section className="flex items-center gap-2 text-sm">
+                <span className="text-slate-500">估值时间范围:</span>
+                {VALUATION_RANGES.map((r) => (
+                  <button
+                    key={r.value}
+                    onClick={() => setValuationYears(r.value)}
+                    className={`px-3 py-1 rounded-md border text-xs transition ${
+                      valuationYears === r.value
+                        ? "bg-slate-900 text-white border-slate-900"
+                        : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </section>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ChartCard
+                  title="市盈率 (PE TTM)"
+                  description="含历史分位参考线，越低越便宜"
+                >
+                  <ValuationChart code={selected} years={valuationYears} metric="pe_ttm" />
+                </ChartCard>
+                <ChartCard
+                  title="股息率"
+                  description="含历史分位参考线，越高越便宜"
+                >
+                  <ValuationChart
+                    code={selected}
+                    years={valuationYears}
+                    metric="dividend_yield"
+                  />
+                </ChartCard>
               </div>
 
-              {compare ? (
-                <>
-                  <PriceChart data={compare} />
-                  <StatsBar index={compare.index} benchmark={compare.benchmark} />
-                  <YearlyBreakdownTable
-                    rows={compare.yearly}
-                    indexName={compare.index.name}
-                    benchmarkName={compare.benchmark.name}
-                  />
-                </>
-              ) : (
-                <div className="h-80 flex items-center justify-center text-slate-400">
-                  加载中…
-                </div>
-              )}
-            </ChartCard>
-
-            <section className="flex items-center gap-2 text-sm">
-              <span className="text-slate-500">估值时间范围:</span>
-              {VALUATION_RANGES.map((r) => (
-                <button
-                  key={r.value}
-                  onClick={() => setValuationYears(r.value)}
-                  className={`px-3 py-1 rounded-md border text-xs transition ${
-                    valuationYears === r.value
-                      ? "bg-slate-900 text-white border-slate-900"
-                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </section>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ChartCard
-                title="市盈率 (PE TTM)"
-                description="含历史分位参考线，越低越便宜"
+                title="股息率 vs 10Y 国债收益率"
+                description="利差反映红利资产相对债券的吸引力，>2% 通常较有吸引力"
               >
-                <ValuationChart code={selected} years={valuationYears} metric="pe_ttm" />
+                <YieldSpreadChart code={selected} years={valuationYears} />
               </ChartCard>
+
               <ChartCard
-                title="股息率"
-                description="含历史分位参考线，越高越便宜"
+                title="成分股权重"
+                description="按权重排序，展示前 20 大成分股"
               >
-                <ValuationChart
-                  code={selected}
-                  years={valuationYears}
-                  metric="dividend_yield"
-                />
+                <ConstituentsTable code={selected} limit={20} />
               </ChartCard>
-            </div>
-
-            <ChartCard
-              title="股息率 vs 10Y 国债收益率"
-              description="利差反映红利资产相对债券的吸引力，>2% 通常较有吸引力"
-            >
-              <YieldSpreadChart code={selected} years={valuationYears} />
-            </ChartCard>
-
-            <ChartCard
-              title="成分股权重"
-              description="按权重排序，展示前 20 大成分股"
-            >
-              <ConstituentsTable code={selected} limit={20} />
-            </ChartCard>
-          </>
-        )}
-      </main>
+            </>
+          )}
+        </main>
+      )}
 
       <footer className="py-8 text-center text-xs text-slate-400">
         AlphaLens v0.1 · 数据仅供参考，不构成投资建议
