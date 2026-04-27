@@ -3,3 +3,4 @@ uvicorn[standard]>=0.30
 akshare>=1.18
 pandas>=2.0
 python-dateutil>=2.9
+yfinance>=0.2.40
