@@ -121,6 +121,130 @@ export interface BenchmarkCompare {
   yearly: YearlyRow[];
 }
 
+// ----------------------------- Portfolio -----------------------------
+
+export interface Holding {
+  id: number;
+  market: string;
+  asset_class: string;
+  tag_l1: string | null;
+  tag_l2: string | null;
+  name: string;
+  code: string | null;
+  currency: string;
+  current_price: number | null;
+  cost_price: number | null;
+  quantity: number | null;
+  cost_value_cny: number;
+  market_value_cny: number;
+  unrealized_pnl_cny: number | null;
+  return_pct: number | null;
+  broker: string;
+  weight: number;
+  as_of: string;
+}
+
+export interface FxSnapshot {
+  pair: string;
+  rate: number;
+  as_of: string;
+}
+
+export interface AllocationBucket {
+  key: string;
+  market_value_cny: number;
+  weight: number;
+}
+
+export interface SyncRun {
+  id: number;
+  source: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  n_rows: number | null;
+  error_msg: string | null;
+}
+
+export interface SyncResult {
+  id: number;
+  status: string;
+  n_inserted: number;
+  n_updated: number;
+  fx_rates: Record<string, number>;
+}
+
+export interface ScreenshotRow {
+  name: string;
+  code: string | null;
+  quantity: number | null;
+  cost_price: number | null;
+  current_price: number | null;
+  market_value: number | null;
+  cost_value: number | null;
+  unrealized_pnl: number | null;
+  return_pct: number | null;
+  currency: string;
+}
+
+export interface ScreenshotParseResult {
+  rows: ScreenshotRow[];
+  warnings: string[];
+}
+
+export interface ImportRow {
+  market: string;
+  asset_class: string;
+  tag_l1: string | null;
+  tag_l2: string | null;
+  name: string;
+  code: string | null;
+  currency: string;
+  quantity: number | null;
+  cost_price: number | null;
+  current_price: number | null;
+  market_value_cny: number;
+  cost_value_cny: number | null;
+  unrealized_pnl_cny: number | null;
+  return_pct: number | null;
+}
+
+export interface ImportResult {
+  id: number;
+  status: string;
+  n_inserted: number;
+  n_updated: number;
+}
+
+export interface TagsConfig {
+  tag_l1: string[];
+  tag_l2: string[];
+}
+
+export interface RefreshPricesResult {
+  id: number;
+  status: string;
+  n_updated: number;
+  n_no_quote: number;
+  n_skipped: number;
+  skipped_examples: string[];
+  fx_rates: Record<string, number>;
+}
+
+export interface PortfolioSummary {
+  total_market_value_cny: number;
+  total_cost_value_cny: number;
+  total_unrealized_pnl_cny: number;
+  total_return_pct: number | null;
+  n_positions: number;
+  last_updated: string | null;
+  fx_rates: FxSnapshot[];
+  by_market: AllocationBucket[];
+  by_asset_class: AllocationBucket[];
+  by_tag_l1: AllocationBucket[];
+  by_broker: AllocationBucket[];
+}
+
 export const fetcher = async <T,>(url: string): Promise<T> => {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
@@ -409,4 +533,15 @@ export const api = {
   usSectorFlow: () => "/api/us/market/sector-flow",
   usIndexChart: (symbol: string, years = 1) =>
     `/api/us/indices/chart?symbol=${encodeURIComponent(symbol)}&years=${years}`,
+
+  // Portfolio
+  portfolioHoldings: () => "/api/portfolio/holdings",
+  portfolioSummary: () => "/api/portfolio/summary",
+  portfolioSyncRuns: () => "/api/portfolio/sync-runs",
+  portfolioSyncFutu: () => "/api/portfolio/sync/futu",
+  portfolioScreenshotParse: () => "/api/portfolio/screenshot-parse",
+  portfolioImportRows: () => "/api/portfolio/import-rows",
+  portfolioTags: () => "/api/portfolio/tags",
+  portfolioPatchHolding: (id: number) => `/api/portfolio/holdings/${id}`,
+  portfolioRefreshPrices: () => "/api/portfolio/refresh-prices",
 };

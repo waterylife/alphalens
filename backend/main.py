@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from dotenv import load_dotenv
+
+# Load env vars (MINIMAX_API_KEY, FUTU_OPEND_*, etc.) from project-root .env
+# before any module that reads them at import time.
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.dividend_index import router as dividend_router
 from backend.api.hk_tech import router as hktech_router
 from backend.api.us_tech import router as ustech_router
+from backend.api.portfolio import router as portfolio_router
 
 app = FastAPI(
     title="AlphaLens API",
@@ -25,6 +32,7 @@ app.add_middleware(
 app.include_router(dividend_router)
 app.include_router(hktech_router)
 app.include_router(ustech_router)
+app.include_router(portfolio_router)
 
 
 @app.get("/api/health")
