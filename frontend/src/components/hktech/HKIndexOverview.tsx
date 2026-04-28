@@ -4,11 +4,6 @@ import useSWR from "swr";
 import { api, fetcher, HKIndexChart } from "@/lib/api";
 import ReactECharts from "echarts-for-react";
 
-function fmt(n: number | null | undefined, decimals = 2, suffix = "") {
-  if (n == null) return "—";
-  return n.toFixed(decimals) + suffix;
-}
-
 function ChangeTag({ value }: { value: number | null }) {
   if (value == null) return <span className="text-slate-400 text-xs">—</span>;
   const pos = value >= 0;

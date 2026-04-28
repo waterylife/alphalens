@@ -1,248 +1,56 @@
-"use client";
+import Link from "next/link";
 
-import { useState, useEffect, useMemo } from "react";
-import useSWR from "swr";
-import { api, fetcher, IndexMeta, Overview, BenchmarkCompare } from "@/lib/api";
-import { IndexSelector } from "@/components/IndexSelector";
-import { OverviewCards } from "@/components/OverviewCards";
-import { ChartCard } from "@/components/ChartCard";
-import { PriceChart } from "@/components/PriceChart";
-import { ValuationChart } from "@/components/ValuationChart";
-import { YieldSpreadChart } from "@/components/YieldSpreadChart";
-import { ConstituentsTable } from "@/components/ConstituentsTable";
-import { BenchmarkSelector } from "@/components/BenchmarkSelector";
-import { StatsBar } from "@/components/StatsBar";
-import { YearlyBreakdownTable } from "@/components/YearlyBreakdownTable";
-import {
-  TimeRangePicker,
-  RangeKey,
-  rangeToDates,
-} from "@/components/TimeRangePicker";
-import { HKTechDashboard } from "@/components/hktech/HKTechDashboard";
-import { USDashboard } from "@/components/ustech/USDashboard";
-
-type Tab = "dividend" | "hktech" | "ustech";
-
-const VALUATION_RANGES = [
-  { label: "1年", value: 1 },
-  { label: "3年", value: 3 },
-  { label: "5年", value: 5 },
-  { label: "10年", value: 10 },
+const ENTRIES = [
+  {
+    href: "/market",
+    title: "金融市场看盘",
+    description: "红利指数、港股科技、美股科技的估值、走势、信号与市场情绪。",
+    meta: "指数估值 · 基准对比 · 科技股信号",
+  },
+  {
+    href: "/portfolio",
+    title: "持仓管理",
+    description: "查看本地持仓快照、资产分布、盈亏表现、标签分组和导入同步状态。",
+    meta: "持仓明细 · 资产配置 · 富途 / 截图导入",
+  },
 ];
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<Tab>("dividend");
-
-  const { data: indices } = useSWR<IndexMeta[]>(api.indices(), fetcher);
-  const [selected, setSelected] = useState<string | null>(null);
-
-  // Main chart state
-  const [benchmark, setBenchmark] = useState("000300");
-  const [rangeKey, setRangeKey] = useState<RangeKey>("10y");
-  const defaultStart = useMemo(() => {
-    const d = new Date();
-    d.setFullYear(d.getFullYear() - 10);
-    return d.toISOString().substring(0, 10);
-  }, []);
-  const today = useMemo(() => new Date().toISOString().substring(0, 10), []);
-  const [customStart, setCustomStart] = useState(defaultStart);
-  const [customEnd, setCustomEnd] = useState(today);
-
-  // Valuation/yield charts use a separate simpler range
-  const [valuationYears, setValuationYears] = useState(10);
-
-  useEffect(() => {
-    if (indices && indices.length > 0 && !selected) {
-      setSelected(indices[0].code);
-    }
-  }, [indices, selected]);
-
-  const { data: overview } = useSWR<Overview>(
-    selected ? api.overview(selected) : null,
-    fetcher
-  );
-
-  const { start: rangeStart, end: rangeEnd } =
-    rangeKey === "custom"
-      ? { start: customStart, end: customEnd }
-      : rangeToDates(rangeKey);
-
-  const { data: compare } = useSWR<BenchmarkCompare>(
-    selected
-      ? api.benchmarkCompare(selected, benchmark, rangeStart, rangeEnd)
-      : null,
-    fetcher
-  );
-
-  const current = indices?.find((i) => i.code === selected);
-
-  const handleRangeChange = (k: RangeKey, s?: string, e?: string) => {
-    setRangeKey(k);
-    if (k === "custom" && s && e) {
-      setCustomStart(s);
-      setCustomEnd(e);
-    }
-  };
-
   return (
-    <div className="min-h-screen">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">AlphaLens</h1>
-            <p className="text-xs text-slate-500 mt-0.5">
-              价值投资视角 · 数据看板
-            </p>
-          </div>
-          <div className="text-xs text-slate-500">
-            数据源: akshare (T+1) · 中证指数 / 乐咕乐股 / 腾讯财经
-          </div>
+    <main className="min-h-[calc(100vh-3rem)] bg-slate-50">
+      <section className="max-w-7xl mx-auto px-6 py-10">
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-slate-950">AlphaLens</h1>
+          <p className="mt-2 text-sm text-slate-500">
+            选择一个工作台开始看盘。
+          </p>
         </div>
 
-        {/* Tab nav */}
-        <div className="max-w-7xl mx-auto px-6 flex gap-0">
-          {(
-            [
-              { key: "dividend", label: "红利指数" },
-              { key: "hktech", label: "港股科技" },
-              { key: "ustech", label: "美股科技" },
-            ] as { key: Tab; label: string }[]
-          ).map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.key
-                  ? "border-slate-900 text-slate-900"
-                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
-              }`}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {ENTRIES.map((entry) => (
+            <Link
+              key={entry.href}
+              href={entry.href}
+              className="group bg-white border border-slate-200 rounded-lg p-6 shadow-sm hover:border-slate-400 hover:shadow-md transition"
             >
-              {tab.label}
-            </button>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="text-xs text-slate-500">{entry.meta}</div>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                    {entry.title}
+                  </h2>
+                </div>
+                <span className="mt-1 text-slate-400 group-hover:text-slate-900 transition">
+                  -&gt;
+                </span>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-slate-600">
+                {entry.description}
+              </p>
+            </Link>
           ))}
         </div>
-      </header>
-
-      {activeTab === "ustech" ? (
-        <USDashboard />
-      ) : activeTab === "hktech" ? (
-        <HKTechDashboard />
-      ) : (
-        <main className="max-w-7xl mx-auto px-6 py-6 space-y-6">
-          <section>
-            <div className="text-xs text-slate-500 mb-2">选择指数</div>
-            {indices ? (
-              <IndexSelector
-                indices={indices}
-                selected={selected || ""}
-                onSelect={setSelected}
-              />
-            ) : (
-              <div className="text-slate-400 text-sm">加载指数列表…</div>
-            )}
-            {current && (
-              <p className="text-sm text-slate-600 mt-3">{current.description}</p>
-            )}
-          </section>
-
-          {selected && overview && (
-            <section>
-              <OverviewCards data={overview} />
-            </section>
-          )}
-
-          {selected && (
-            <>
-              <ChartCard
-                title="指数走势 · 基准对比"
-                description="与基准指数同期走势、收益、回撤、波动率对比"
-                action={
-                  <BenchmarkSelector value={benchmark} onChange={setBenchmark} />
-                }
-              >
-                <div className="px-2 pb-2">
-                  <TimeRangePicker
-                    value={rangeKey}
-                    customStart={customStart}
-                    customEnd={customEnd}
-                    onChange={handleRangeChange}
-                  />
-                </div>
-
-                {compare ? (
-                  <>
-                    <PriceChart data={compare} />
-                    <StatsBar index={compare.index} benchmark={compare.benchmark} />
-                    <YearlyBreakdownTable
-                      rows={compare.yearly}
-                      indexName={compare.index.name}
-                      benchmarkName={compare.benchmark.name}
-                    />
-                  </>
-                ) : (
-                  <div className="h-80 flex items-center justify-center text-slate-400">
-                    加载中…
-                  </div>
-                )}
-              </ChartCard>
-
-              <section className="flex items-center gap-2 text-sm">
-                <span className="text-slate-500">估值时间范围:</span>
-                {VALUATION_RANGES.map((r) => (
-                  <button
-                    key={r.value}
-                    onClick={() => setValuationYears(r.value)}
-                    className={`px-3 py-1 rounded-md border text-xs transition ${
-                      valuationYears === r.value
-                        ? "bg-slate-900 text-white border-slate-900"
-                        : "bg-white text-slate-700 border-slate-200 hover:border-slate-400"
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </section>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <ChartCard
-                  title="市盈率 (PE TTM)"
-                  description="含历史分位参考线，越低越便宜"
-                >
-                  <ValuationChart code={selected} years={valuationYears} metric="pe_ttm" />
-                </ChartCard>
-                <ChartCard
-                  title="股息率"
-                  description="含历史分位参考线，越高越便宜"
-                >
-                  <ValuationChart
-                    code={selected}
-                    years={valuationYears}
-                    metric="dividend_yield"
-                  />
-                </ChartCard>
-              </div>
-
-              <ChartCard
-                title="股息率 vs 10Y 国债收益率"
-                description="利差反映红利资产相对债券的吸引力，>2% 通常较有吸引力"
-              >
-                <YieldSpreadChart code={selected} years={valuationYears} />
-              </ChartCard>
-
-              <ChartCard
-                title="成分股权重"
-                description="按权重排序，展示前 20 大成分股"
-              >
-                <ConstituentsTable code={selected} limit={20} />
-              </ChartCard>
-            </>
-          )}
-        </main>
-      )}
-
-      <footer className="py-8 text-center text-xs text-slate-400">
-        AlphaLens v0.1 · 数据仅供参考，不构成投资建议
-      </footer>
-    </div>
+      </section>
+    </main>
   );
 }

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import secrets
+import time
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
 from backend.portfolio import db, service, tags as tags_cfg
 from backend.portfolio.schemas import (
@@ -21,11 +23,29 @@ from backend.portfolio.schemas import (
     SyncResult,
     SyncRun,
     TagsConfig,
+    TiantianBrowserImportRequest,
 )
 from backend.portfolio.sources import screenshot as ss
 
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
+
+_IMPORT_TOKENS: dict[str, float] = {}
+_TOKEN_TTL_SECONDS = 15 * 60
+
+
+def _cleanup_tokens() -> None:
+    now = time.time()
+    expired = [token for token, until in _IMPORT_TOKENS.items() if until < now]
+    for token in expired:
+        _IMPORT_TOKENS.pop(token, None)
+
+
+def _consume_token(token: str | None) -> None:
+    _cleanup_tokens()
+    if not token or token not in _IMPORT_TOKENS:
+        raise HTTPException(status_code=403, detail="导入 token 无效或已过期")
+    _IMPORT_TOKENS.pop(token, None)
 
 
 @router.get("/holdings", response_model=list[Holding])
@@ -243,4 +263,29 @@ def import_rows(req: ImportRequest) -> ImportResult:
         result = service.import_rows(req.broker, [r.model_dump() for r in req.rows])
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"导入失败: {e}")
+    return ImportResult(**result)
+
+
+@router.post("/tiantian-browser-token")
+def create_tiantian_browser_token() -> dict:
+    """Create a short-lived token embedded into the one-time browser collector."""
+    _cleanup_tokens()
+    token = secrets.token_urlsafe(24)
+    expires_at = time.time() + _TOKEN_TTL_SECONDS
+    _IMPORT_TOKENS[token] = expires_at
+    return {"token": token, "expires_in_seconds": _TOKEN_TTL_SECONDS}
+
+
+@router.post("/tiantian-browser-import", response_model=ImportResult)
+def import_tiantian_browser_rows(
+    req: TiantianBrowserImportRequest,
+    x_alphalens_import_token: str | None = Header(default=None),
+) -> ImportResult:
+    _consume_token(x_alphalens_import_token)
+    if not req.rows:
+        raise HTTPException(status_code=400, detail="rows 为空,无可导入数据")
+    try:
+        result = service.import_tiantian_browser_rows([r.model_dump() for r in req.rows])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"天天基金页面导入失败: {e}")
     return ImportResult(**result)

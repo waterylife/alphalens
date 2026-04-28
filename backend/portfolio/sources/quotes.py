@@ -165,6 +165,27 @@ def _open_fund_spot() -> dict[str, float]:
     return out
 
 
+@_ttl_cache(ttl=24 * 60 * 60)
+def _open_fund_profiles() -> dict[str, dict[str, str]]:
+    """Open-end fund metadata keyed by 6-digit code.
+
+    Used to classify imported fund holdings into the portfolio UI's broader
+    buckets (股票 / 债券 / 现金). Cached for a day because fund names/types are
+    slow-moving reference data, unlike NAVs.
+    """
+    with _no_proxy():
+        df = ak.fund_name_em()
+
+    out: dict[str, dict[str, str]] = {}
+    for _, r in df.iterrows():
+        code = str(r["基金代码"]).strip().zfill(6)
+        out[code] = {
+            "name": str(r.get("基金简称") or "").strip(),
+            "type": str(r.get("基金类型") or "").strip(),
+        }
+    return out
+
+
 @_ttl_cache()
 def _us_one(symbol: str) -> float | None:
     """US tickers — akshare doesn't have a reliable spot endpoint that works
@@ -284,3 +305,14 @@ def fetch_quote(market: str, code: str, asset_class: str | None = None) -> float
             return _try_funds()
 
     return None
+
+
+def fetch_fund_profile(code: str) -> dict[str, str] | None:
+    """Return basic open-end fund metadata, or None if the code is unknown."""
+    if not code:
+        return None
+    code = code.strip().zfill(6)
+    try:
+        return _open_fund_profiles().get(code)
+    except Exception:
+        return None

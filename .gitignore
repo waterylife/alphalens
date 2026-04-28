@@ -22,6 +22,8 @@ htmlcov/
 # Cache
 .cache/
 *.sqlite
+.seed/
+.claude/worktrees/
 
 # Node / Next.js
 node_modules/

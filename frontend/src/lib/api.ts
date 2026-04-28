@@ -541,6 +541,7 @@ export const api = {
   portfolioSyncFutu: () => "/api/portfolio/sync/futu",
   portfolioScreenshotParse: () => "/api/portfolio/screenshot-parse",
   portfolioImportRows: () => "/api/portfolio/import-rows",
+  portfolioTiantianBrowserToken: () => "/api/portfolio/tiantian-browser-token",
   portfolioTags: () => "/api/portfolio/tags",
   portfolioPatchHolding: (id: number) => `/api/portfolio/holdings/${id}`,
   portfolioRefreshPrices: () => "/api/portfolio/refresh-prices",

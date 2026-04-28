@@ -105,21 +105,22 @@ def get_stocks_snapshot(
 ) -> list[HKStockSnapshot]:
     ticker_list = [hk_client.normalize_ticker(t) for t in tickers.split(",") if t.strip()]
     as_of = dt.date.today().isoformat()
-
-    try:
-        all_df = hk_client.hk_stocks_all_snapshot()
-        all_df = _resolve_code_column(all_df)
-        lookup = all_df.set_index("代码")
-    except Exception:
-        lookup = pd.DataFrame()
+    yf_lookup = hk_client.fetch_stock_snapshots_yf(ticker_list)
 
     results: list[HKStockSnapshot] = []
     for ticker in ticker_list:
-        if not lookup.empty and ticker in lookup.index:
-            row = lookup.loc[ticker]
-            if isinstance(row, pd.DataFrame):
-                row = row.iloc[0]
-            results.append(_snapshot_from_row(ticker, row, as_of))
+        if ticker in yf_lookup:
+            d = yf_lookup[ticker]
+            results.append(HKStockSnapshot(
+                ticker=ticker,
+                name=d.get("name"),
+                price=d.get("price"),
+                change_pct=d.get("change_pct"),
+                pe_ttm=None,
+                pb=None,
+                volume_hkd_mn=d.get("volume_hkd_mn"),
+                as_of=as_of,
+            ))
         else:
             results.append(HKStockSnapshot(ticker=ticker, name=None, price=None,
                                            change_pct=None, pe_ttm=None, pb=None,

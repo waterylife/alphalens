@@ -14,10 +14,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-_DEFAULT_DB_PATH = Path(os.environ.get(
-    "ALPHALENS_PORTFOLIO_DB",
-    Path(__file__).resolve().parents[2] / ".cache" / "portfolio.sqlite",
-))
+_CANONICAL_DB_PATH = Path.home() / "Code" / "alphalens" / ".cache" / "portfolio.sqlite"
+
+_DEFAULT_DB_PATH = Path(os.environ.get("ALPHALENS_PORTFOLIO_DB", _CANONICAL_DB_PATH))
 
 
 SCHEMA = """

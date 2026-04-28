@@ -118,6 +118,17 @@ class ImportResult(BaseModel):
     n_updated: int
 
 
+class TiantianBrowserRow(BaseModel):
+    name: str
+    code: str
+    quantity: float
+    cost_price: float = Field(description="摊薄单价 / 成本价")
+
+
+class TiantianBrowserImportRequest(BaseModel):
+    rows: list[TiantianBrowserRow]
+
+
 class TagsConfig(BaseModel):
     tag_l1: list[str]
     tag_l2: list[str]

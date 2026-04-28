@@ -10,7 +10,9 @@ surrounding pipeline keeps working.
 from __future__ import annotations
 
 import datetime as dt
+import socket
 import threading
+import time
 from typing import Any
 
 import pandas as pd
@@ -31,6 +33,21 @@ TTL_DAILY = 60 * 60 * 4
 
 _ctx_lock = threading.Lock()
 _ctx: Any = None
+_unreachable_until = 0.0
+
+
+def _opend_reachable() -> bool:
+    """Fast TCP probe so a missing OpenD does not stall every HK request."""
+    global _unreachable_until
+    now = time.time()
+    if now < _unreachable_until:
+        return False
+    try:
+        with socket.create_connection((_HOST, _PORT), timeout=0.25):
+            return True
+    except OSError:
+        _unreachable_until = now + 30
+        return False
 
 
 def _get_ctx() -> Any:
@@ -39,6 +56,8 @@ def _get_ctx() -> Any:
     if not _FUTU_OK:
         return None
     with _ctx_lock:
+        if _ctx is None and not _opend_reachable():
+            return None
         if _ctx is None:
             try:
                 _ctx = OpenQuoteContext(host=_HOST, port=_PORT)
@@ -61,6 +80,8 @@ def available() -> bool:
         ret, _ = ctx.get_global_state()
         return ret == 0
     except Exception:
+        global _ctx
+        _ctx = None
         return False
 
 

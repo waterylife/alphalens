@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { HKIndexOverview } from "./HKIndexOverview";
 import { HKStocksMatrix } from "./HKStocksMatrix";
 import { HKMarketPanel } from "./HKMarketPanel";
@@ -25,12 +25,7 @@ function loadTickers(): string[] {
 }
 
 export function HKTechDashboard() {
-  const [tickers, setTickers] = useState<string[]>(DEFAULT_TICKERS);
-
-  // Load from localStorage after hydration
-  useEffect(() => {
-    setTickers(loadTickers());
-  }, []);
+  const [tickers, setTickers] = useState<string[]>(() => loadTickers());
 
   const handleTickersChange = (next: string[]) => {
     setTickers(next);

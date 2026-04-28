@@ -254,6 +254,161 @@ def import_rows(broker: str, rows: list[dict]) -> dict:
         raise
 
 
+def import_tiantian_browser_rows(rows: list[dict]) -> dict:
+    """Upsert minimal read-only rows collected from Tiantian fund pages.
+
+    The browser collector is intentionally limited to code/name/quantity/cost
+    price. Current NAV is fetched locally via the quote layer, then all derived
+    CNY fields are computed here. Existing user-curated market/tags are
+    preserved when a matching 天天基金 code already exists.
+    """
+    started = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with db.connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO sync_runs(source, started_at, status) VALUES (?,?,?)",
+            ("browser:tiantian", started, "running"),
+        )
+        run_id = cur.lastrowid
+
+    n_inserted = n_updated = 0
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        with db.connect() as conn:
+            for r in rows:
+                code = str(r["code"]).strip().zfill(6)
+                name = str(r["name"]).strip()
+                quantity = float(r["quantity"])
+                cost_price = float(r["cost_price"])
+                if quantity <= 0 or cost_price <= 0:
+                    continue
+
+                profile = classify_fund_holding(name, code)
+                name = profile["name"] or name
+                existing = _find_existing_by_broker_code(conn, "天天基金", code)
+                current_price = quotes_src.fetch_quote(
+                    profile["market"], code, asset_class=profile["asset_class"]
+                )
+                if current_price is None:
+                    current_price = cost_price
+
+                cost_value = round(quantity * cost_price, 2)
+                market_value = round(quantity * current_price, 2)
+                pnl = round(market_value - cost_value, 2)
+                ret_pct = round((current_price / cost_price - 1) * 100, 2)
+
+                if existing:
+                    conn.execute(
+                        """
+                        UPDATE holdings SET
+                            market=?, asset_class=?, tag_l1=?, tag_l2=?,
+                            name=?, current_price=?, cost_price=?, quantity=?,
+                            cost_value_cny=?, market_value_cny=?,
+                            unrealized_pnl_cny=?, return_pct=?,
+                            as_of=?, source_run_id=?
+                        WHERE id=?
+                        """,
+                        (
+                            profile["market"], profile["asset_class"],
+                            profile["tag_l1"], profile["tag_l2"],
+                            name, current_price, cost_price, quantity,
+                            cost_value, market_value, pnl, ret_pct,
+                            now, run_id, existing["id"],
+                        ),
+                    )
+                    n_updated += 1
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO holdings(
+                            market, asset_class, tag_l1, tag_l2,
+                            name, code, currency,
+                            current_price, cost_price, quantity,
+                            cost_value_cny, market_value_cny,
+                            unrealized_pnl_cny, return_pct,
+                            broker, as_of, source_run_id
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            profile["market"], profile["asset_class"],
+                            profile["tag_l1"], profile["tag_l2"],
+                            name, code, "CNY",
+                            current_price, cost_price, quantity,
+                            cost_value, market_value, pnl, ret_pct,
+                            "天天基金", now, run_id,
+                        ),
+                    )
+                    n_inserted += 1
+
+        finished = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE sync_runs SET finished_at=?, status=?, n_rows=? WHERE id=?",
+                (finished, "ok", n_inserted + n_updated, run_id),
+            )
+        return {"id": run_id, "status": "ok", "n_inserted": n_inserted, "n_updated": n_updated}
+    except Exception as e:
+        finished = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with db.connect() as conn:
+            conn.execute(
+                "UPDATE sync_runs SET finished_at=?, status=?, error_msg=? WHERE id=?",
+                (finished, "error", str(e), run_id),
+            )
+        raise
+
+
+def classify_fund_holding(name: str, code: str | None = None) -> dict[str, str | None]:
+    """Classify a fund into the UI's top-level portfolio buckets.
+
+    The holdings UI only has first-class sections for 股票 / 债券 / 现金.
+    Fund imports therefore need to be mapped by fund metadata rather than
+    stored as a separate generic "基金" asset class.
+    """
+    code = (code or "").strip().zfill(6) if code else ""
+    meta = quotes_src.fetch_fund_profile(code) if code else None
+    fund_name = (meta or {}).get("name") or name.strip()
+    fund_type = (meta or {}).get("type") or ""
+    text = f"{fund_name} {fund_type}"
+
+    asset_class = "股票"
+    tag_l1: str | None = "价值成长"
+    tag_l2: str | None = None
+    market = "中国"
+
+    if any(k in text for k in ("货币", "现金", "同业存单")):
+        asset_class, tag_l1, tag_l2 = "现金", "现金", "现金"
+    elif any(k in text for k in ("债", "短债", "中短债", "纯债", "可转债")):
+        asset_class = "债券"
+        is_mixed = any(k in text for k in ("混合债", "混合一级", "混合二级", "可转债", "增强债"))
+        tag_l1 = "混合债券" if is_mixed else "纯债"
+        tag_l2 = "混合债券" if is_mixed else "纯债-中国"
+        if "QDII" in text.upper() and any(k in text for k in ("美元", "美国", "全球", "亚洲")):
+            tag_l2 = "混合债券" if is_mixed else "纯债-美国"
+    elif any(k in text for k in ("黄金", "贵金属")):
+        asset_class, tag_l1, tag_l2 = "黄金", "黄金/虚拟币", "黄金/虚拟币"
+    elif any(k in text for k in ("红利", "低波")):
+        asset_class, tag_l1 = "股票", "红利低波"
+        if any(k in text for k in ("港", "恒生", "香港")):
+            tag_l2 = "港股红利"
+        elif any(k in text for k in ("美", "标普", "纳斯达克")):
+            tag_l2 = "美股红利"
+        else:
+            tag_l2 = "沪深红利"
+    elif any(k in text for k in ("科技", "互联网", "纳斯达克", "恒生科技")):
+        asset_class, tag_l1 = "股票", "价值成长"
+        if any(k in text for k in ("港", "恒生")):
+            tag_l2 = "港股科技"
+        elif any(k in text for k in ("美", "纳斯达克", "标普", "全球")):
+            tag_l2 = "美股科技"
+
+    return {
+        "name": fund_name,
+        "market": market,
+        "asset_class": asset_class,
+        "tag_l1": tag_l1,
+        "tag_l2": tag_l2,
+    }
+
+
 # ---- price refresh ----------------------------------------------------
 
 def refresh_prices(force: bool = False) -> dict:
@@ -388,3 +543,15 @@ def _find_existing_for_import(conn, broker: str, r: dict) -> dict | None:
         (broker, market, r["name"]),
     ).fetchone()
     return dict(row) if row else None
+
+
+def _find_existing_by_broker_code(conn, broker: str, code: str) -> dict | None:
+    norm = _normalize_code(code)
+    rows = conn.execute(
+        "SELECT * FROM holdings WHERE broker=? AND code IS NOT NULL",
+        (broker,),
+    ).fetchall()
+    for row in rows:
+        if _normalize_code(row["code"]) == norm:
+            return dict(row)
+    return None

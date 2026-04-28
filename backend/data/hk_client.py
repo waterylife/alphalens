@@ -53,6 +53,80 @@ def hk_stocks_all_snapshot() -> pd.DataFrame:
     return cache.fetch("hk_spot_sina", "all", TTL_INTRADAY, _fetch)
 
 
+def fetch_stock_snapshots_yf(tickers: list[str]) -> dict[str, dict[str, Any]]:
+    """HK stock snapshot via yfinance, keyed by 5-digit HK code.
+
+    This is intentionally ticker-scoped. The Sina all-market endpoint can be
+    slow on a cold cache because it crawls many pages, which makes the UI look
+    empty while the request is still in flight.
+    """
+    if not tickers or yf is None:
+        return {}
+    normalized = [normalize_ticker(t) for t in tickers]
+    key = ",".join(sorted(normalized))
+
+    def _yf_symbol(ticker: str) -> str:
+        return f"{ticker.lstrip('0').zfill(4)}.HK"
+
+    def _fetch() -> dict[str, dict[str, Any]]:
+        symbols = [_yf_symbol(t) for t in normalized]
+        out: dict[str, dict[str, Any]] = {}
+        hist = None
+        try:
+            hist = yf.download(
+                symbols,
+                period="5d",
+                interval="1d",
+                group_by="ticker",
+                progress=False,
+                auto_adjust=False,
+                threads=True,
+            )
+        except Exception:
+            hist = None
+
+        for ticker, symbol in zip(normalized, symbols):
+            name = price = change_pct = volume_hkd_mn = None
+            try:
+                if hist is not None:
+                    df = hist if len(symbols) == 1 else hist.get(symbol)
+                    if df is not None:
+                        df = df.dropna(subset=["Close"])
+                    if df is not None and len(df) >= 2:
+                        last = float(df["Close"].iloc[-1])
+                        prev = float(df["Close"].iloc[-2])
+                        vol = float(df["Volume"].iloc[-1]) if "Volume" in df else 0
+                        price = round(last, 3)
+                        change_pct = round((last / prev - 1) * 100, 2) if prev else None
+                        volume_hkd_mn = round(vol * last / 1_000_000, 2) if vol else None
+            except Exception:
+                pass
+            try:
+                info = yf.Ticker(symbol).info or {}
+                name = info.get("shortName") or info.get("longName")
+                if price is None:
+                    price = _clean_num(info.get("currentPrice") or info.get("regularMarketPrice"))
+                if volume_hkd_mn is None:
+                    volume = _clean_num(info.get("volume") or info.get("regularMarketVolume"))
+                    if volume and price:
+                        volume_hkd_mn = round(volume * price / 1_000_000, 2)
+            except Exception:
+                pass
+            out[ticker] = {
+                "ticker": ticker,
+                "name": name,
+                "price": price,
+                "change_pct": change_pct,
+                "volume_hkd_mn": volume_hkd_mn,
+            }
+        return out
+
+    try:
+        return cache.fetch("hk_snapshot_yf", key, TTL_INTRADAY, _fetch)
+    except Exception:
+        return {}
+
+
 # ─────────────────────────── Price history ───────────────────────────
 
 

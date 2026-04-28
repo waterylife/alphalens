@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import {
   api, fetcher,
@@ -405,11 +405,7 @@ function SectorFlow() {
 // ─────────── Dashboard root ───────────
 
 export function USDashboard() {
-  const [tickers, setTickers] = useState<string[]>(DEFAULT_TICKERS);
-
-  useEffect(() => {
-    setTickers(loadTickers());
-  }, []);
+  const [tickers, setTickers] = useState<string[]>(() => loadTickers());
 
   const handleChange = (next: string[]) => {
     setTickers(next);

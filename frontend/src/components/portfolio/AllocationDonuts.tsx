@@ -3,18 +3,43 @@
 import ReactECharts from "echarts-for-react";
 import { AllocationBucket, PortfolioSummary } from "@/lib/api";
 
-const PALETTE = [
-  "#0f172a",
-  "#475569",
-  "#94a3b8",
-  "#0ea5e9",
-  "#22c55e",
-  "#f59e0b",
-  "#ef4444",
-  "#a855f7",
-  "#14b8a6",
-  "#eab308",
+const FALLBACK_PALETTE = [
+  "#2563eb",
+  "#dc2626",
+  "#16a34a",
+  "#9333ea",
+  "#ea580c",
+  "#0891b2",
+  "#ca8a04",
+  "#db2777",
+  "#4f46e5",
+  "#059669",
 ];
+
+const COLOR_BY_KEY: Record<string, string> = {
+  中国: "#dc2626",
+  香港: "#0d9488",
+  美国: "#2563eb",
+  股票: "#2563eb",
+  债券: "#16a34a",
+  现金: "#f59e0b",
+  黄金: "#eab308",
+  红利低波: "#dc2626",
+  价值成长: "#2563eb",
+  纯债: "#16a34a",
+  混合债券: "#65a30d",
+  黄金虚拟币: "#eab308",
+  "黄金/虚拟币": "#eab308",
+  待卖出: "#f97316",
+  未分类: "#94a3b8",
+  富途证券: "#7c3aed",
+  天天基金: "#0ea5e9",
+  东方财富: "#ef4444",
+};
+
+function colorFor(key: string, index: number) {
+  return COLOR_BY_KEY[key] ?? FALLBACK_PALETTE[index % FALLBACK_PALETTE.length];
+}
 
 function donutOption(title: string, buckets: AllocationBucket[]) {
   return {
@@ -35,23 +60,46 @@ function donutOption(title: string, buckets: AllocationBucket[]) {
       type: "scroll",
       orient: "horizontal",
       bottom: 0,
+      itemWidth: 14,
+      itemHeight: 10,
       textStyle: { fontSize: 11, color: "#475569" },
     },
-    color: PALETTE,
     series: [
       {
         type: "pie",
-        radius: ["45%", "70%"],
+        radius: ["40%", "62%"],
         center: ["50%", "52%"],
         avoidLabelOverlap: true,
+        minShowLabelAngle: 12,
         label: {
           show: true,
-          formatter: "{b}\n{d}%",
+          overflow: "break",
+          width: 68,
+          formatter: (p: { name: string; percent: number }) =>
+            p.percent >= 5 ? `${p.name}\n${p.percent.toFixed(1)}%` : "",
           fontSize: 11,
           color: "#334155",
         },
-        labelLine: { length: 8, length2: 8 },
-        data: buckets.map((b) => ({ name: b.key, value: b.market_value_cny })),
+        labelLine: {
+          show: true,
+          length: 8,
+          length2: 10,
+          minTurnAngle: 90,
+          lineStyle: { color: "#94a3b8" },
+        },
+        labelLayout: {
+          hideOverlap: true,
+          moveOverlap: "shiftY",
+        },
+        itemStyle: {
+          borderColor: "#ffffff",
+          borderWidth: 2,
+        },
+        data: buckets.map((b, index) => ({
+          name: b.key,
+          value: b.market_value_cny,
+          itemStyle: { color: colorFor(b.key, index) },
+        })),
       },
     ],
   };
@@ -69,7 +117,7 @@ export function AllocationDonuts({ data }: { data: PortfolioSummary }) {
       {charts.map((c) => (
         <div
           key={c.title}
-          className="bg-white border border-slate-200 rounded-xl shadow-sm"
+          className="bg-white border border-slate-200 rounded-lg shadow-sm"
         >
           <ReactECharts
             option={donutOption(c.title, c.buckets)}

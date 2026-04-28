@@ -6,6 +6,8 @@ import { api, fetcher, Holding, TagsConfig } from "@/lib/api";
 
 const ALL = "全部";
 const NONE = "—";   // sentinel for "clear this tag" in selects
+type SortKey = "market_value_cny" | "return_pct";
+type SortDir = "desc" | "asc";
 
 // Order of asset-class sections; rows with any other class fall into "其他"
 const ASSET_SECTIONS = ["股票", "债券", "现金"] as const;
@@ -51,6 +53,8 @@ export function HoldingsTable({ rows }: { rows: Holding[] }) {
   const [market, setMarket] = useState(ALL);
   const [broker, setBroker] = useState(ALL);
   const [tagL1, setTagL1] = useState(ALL);
+  const [sortKey, setSortKey] = useState<SortKey>("market_value_cny");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const [savingIds, setSavingIds] = useState<Set<number>>(new Set());
 
@@ -71,9 +75,27 @@ export function HoldingsTable({ rows }: { rows: Holding[] }) {
       (tagL1 === ALL || r.tag_l1 === tagL1)
   );
 
+  function toggleSort(nextKey: SortKey) {
+    if (sortKey === nextKey) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(nextKey);
+      setSortDir("desc");
+    }
+  }
+
   // Group filtered rows by asset class in declared order; everything else
   // (e.g. 黄金) lands in 其他 so it never silently disappears.
   const sections = useMemo(() => {
+    const sortRows = (items: Holding[]) =>
+      [...items].sort((a, b) => {
+        const av = a[sortKey] ?? Number.NEGATIVE_INFINITY;
+        const bv = b[sortKey] ?? Number.NEGATIVE_INFINITY;
+        const diff = av - bv;
+        if (diff === 0) return b.market_value_cny - a.market_value_cny;
+        return sortDir === "asc" ? diff : -diff;
+      });
+
     const buckets = new Map<string, Holding[]>();
     for (const sec of ASSET_SECTIONS) buckets.set(sec, []);
     const other: Holding[] = [];
@@ -86,11 +108,11 @@ export function HoldingsTable({ rows }: { rows: Holding[] }) {
       target.push(r);
     }
     const list: { name: string; rows: Holding[] }[] = ASSET_SECTIONS.map(
-      (n) => ({ name: n, rows: buckets.get(n) || [] })
+      (n) => ({ name: n, rows: sortRows(buckets.get(n) || []) })
     );
-    if (other.length) list.push({ name: "其他", rows: other });
+    if (other.length) list.push({ name: "其他", rows: sortRows(other) });
     return list;
-  }, [filtered]);
+  }, [filtered, sortDir, sortKey]);
 
   const totalMv = filtered.reduce((s, r) => s + r.market_value_cny, 0);
   const totalCv = filtered.reduce((s, r) => s + r.cost_value_cny, 0);
@@ -139,6 +161,23 @@ export function HoldingsTable({ rows }: { rows: Holding[] }) {
         <Filter label="市场" value={market} options={markets} onChange={setMarket} />
         <Filter label="平台" value={broker} options={brokers} onChange={setBroker} />
         <Filter label="标签" value={tagL1} options={tagL1Filter} onChange={setTagL1} />
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-slate-500">排序</span>
+          <SortButton
+            active={sortKey === "market_value_cny"}
+            dir={sortDir}
+            onClick={() => toggleSort("market_value_cny")}
+          >
+            市值
+          </SortButton>
+          <SortButton
+            active={sortKey === "return_pct"}
+            dir={sortDir}
+            onClick={() => toggleSort("return_pct")}
+          >
+            收益率
+          </SortButton>
+        </div>
         <div className="ml-auto text-xs text-slate-500">
           全部 {filtered.length} 行 · 市值 {fmtCny(totalMv)} · 浮盈{" "}
           <span className={pnlClass(totalPnl)}>{fmtCny(totalPnl, true)}</span>
@@ -354,6 +393,34 @@ function Filter({
         ))}
       </select>
     </label>
+  );
+}
+
+function SortButton({
+  active,
+  dir,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-7 rounded-md border px-2 text-xs transition ${
+        active
+          ? "border-slate-900 bg-slate-900 text-white"
+          : "border-slate-200 bg-white text-slate-600 hover:border-slate-400"
+      }`}
+      title={active ? `当前按${children}${dir === "desc" ? "降序" : "升序"}` : undefined}
+    >
+      <span>{children}</span>
+      {active && <span className="ml-1">{dir === "desc" ? "↓" : "↑"}</span>}
+    </button>
   );
 }
 

@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AlphaLens · 红利指数看板",
-  description: "红利指数价值分析看板",
+  title: "AlphaLens",
+  description: "金融市场与持仓分析看板",
 };
 
 export default function RootLayout({
