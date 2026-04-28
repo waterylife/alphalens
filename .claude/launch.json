@@ -7,6 +7,12 @@
       "runtimeArgs": ["--yes", "next", "dev"],
       "cwd": "frontend",
       "port": 3000
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "/Users/shawn/Code/alphalens/.venv/bin/uvicorn",
+      "runtimeArgs": ["backend.main:app", "--port", "8000"],
+      "port": 8000
     }
   ]
 }
