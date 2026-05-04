@@ -188,9 +188,15 @@ class HKStockFundamental(BaseModel):
     ticker: str
     name: str | None
     pe_ttm: float | None
+    forward_pe: float | None = None
     pb: float | None
+    peg: float | None = None
     ps_ttm: float | None
     market_cap_hkd_bn: float | None = Field(description="Market cap in HKD billions")
+    revenue_growth_pct: float | None = None
+    gross_margin_pct: float | None = None
+    roe_pct: float | None = None
+    beta: float | None = None
 
 
 class HKMarketLiquidity(BaseModel):

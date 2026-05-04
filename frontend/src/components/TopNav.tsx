@@ -7,6 +7,7 @@ const TABS = [
   { href: "/", label: "主页" },
   { href: "/market", label: "金融市场看盘" },
   { href: "/portfolio", label: "持仓管理" },
+  { href: "/agent", label: "投资 Agent" },
 ];
 
 export function TopNav() {

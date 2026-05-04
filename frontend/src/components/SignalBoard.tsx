@@ -37,6 +37,12 @@ const WEIGHTS: Record<Market, { label: string; weight: number; accent: string }[
   ],
 };
 
+const ACTION_NOTE = [
+  { k: "买入", score: "≥ 65", desc: "多维度利好叠加，胜率与赔率都好" },
+  { k: "持有", score: "40 – 65", desc: "利好利空打架，方向不明，观望不急动" },
+  { k: "卖出", score: "< 40", desc: "多维度利空叠加，风险收益比不划算" },
+];
+
 // Pull the five component scores into a uniform tuple for the stacked bar.
 // Returns [valuation, momentum, quality/flow, risk/liquidity, macroDelta].
 function components(market: Market, sig: USStrategySignal | HKStrategySignal): (number | null)[] {
@@ -158,8 +164,23 @@ export function SignalBoard({ market, tickers }: Props) {
         })}
       </div>
 
-      <div className="mt-3 text-[10px] text-slate-400">
-        打分由规则引擎生成（非 LLM）· 中文解释由 MiniMax 生成 · 悬停解释查看触发规则
+      <div className="mt-3 border-t border-slate-100 pt-3 text-[11px] text-slate-400">
+        <div>
+          <span className="font-medium text-slate-500">动作说明：</span>
+          <span>动作由打分规则决定（非 LLM），LLM 仅生成中文解释。</span>
+        </div>
+        <ul className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1">
+          {ACTION_NOTE.map((a) => (
+            <li key={a.k} className="text-slate-500">
+              <span className="font-medium text-slate-700">{a.k}</span>
+              <span className="mx-1 text-slate-400">({a.score})</span>
+              <span className="text-slate-400">{a.desc}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-1.5 text-[10px]">
+          悬停解释可查看触发规则。
+        </div>
       </div>
     </div>
   );

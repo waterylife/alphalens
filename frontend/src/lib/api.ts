@@ -304,9 +304,15 @@ export interface HKStockFundamental {
   ticker: string;
   name: string | null;
   pe_ttm: number | null;
+  forward_pe: number | null;
   pb: number | null;
+  peg: number | null;
   ps_ttm: number | null;
   market_cap_hkd_bn: number | null;
+  revenue_growth_pct: number | null;
+  gross_margin_pct: number | null;
+  roe_pct: number | null;
+  beta: number | null;
 }
 
 export interface HKMarketLiquidity {
@@ -469,6 +475,33 @@ export interface USStrategySignal {
   explanation: string | null;
 }
 
+// ───────────────────────── Investment Agent types ─────────────────────
+
+export interface StrategyDocument {
+  id: number;
+  title: string;
+  category: string;
+  symbols: string[];
+  thesis: string;
+  conclusion: string;
+  summary: string;
+  content: string;
+  tags: string[];
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StrategyDocumentList {
+  items: StrategyDocument[];
+  total: number;
+}
+
+export interface AgentConversationResult {
+  document: StrategyDocument;
+  reply: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -504,6 +537,7 @@ export const api = {
   hkSearch: (q: string) =>
     `/api/hktech/stocks/search?q=${encodeURIComponent(q)}`,
   hkIndexChart: (years = 1) => `/api/hktech/index/chart?years=${years}`,
+  hkIndexCompare: (years = 3) => `/api/hktech/index/benchmark-compare?years=${years}`,
   hkTechnicals: (tickers: string[]) =>
     `/api/hktech/stocks/technicals?tickers=${tickers.join(",")}`,
   hkFundamentals: (tickers: string[]) =>
@@ -545,4 +579,16 @@ export const api = {
   portfolioTags: () => "/api/portfolio/tags",
   portfolioPatchHolding: (id: number) => `/api/portfolio/holdings/${id}`,
   portfolioRefreshPrices: () => "/api/portfolio/refresh-prices",
+
+  // Investment Agent
+  agentRecentDocument: () => "/api/agent/documents/recent",
+  agentCategories: () => "/api/agent/categories",
+  agentDocuments: (q = "", category = "全部") => {
+    const qs = new URLSearchParams();
+    if (q.trim()) qs.set("q", q.trim());
+    if (category && category !== "全部") qs.set("category", category);
+    return `/api/agent/documents${qs.toString() ? `?${qs.toString()}` : ""}`;
+  },
+  agentDocument: (id: number) => `/api/agent/documents/${id}`,
+  agentChat: () => "/api/agent/chat",
 };

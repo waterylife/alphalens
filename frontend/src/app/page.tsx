@@ -13,6 +13,12 @@ const ENTRIES = [
     description: "查看本地持仓快照、资产分布、盈亏表现、标签分组和导入同步状态。",
     meta: "持仓明细 · 资产配置 · 富途 / 截图导入",
   },
+  {
+    href: "/agent",
+    title: "投资 Agent",
+    description: "进入策略分析对话，沉淀分析文档，并按分类、标的和关键词检索历史结论。",
+    meta: "策略对话 · 文档管理 · 结论摘要",
+  },
 ];
 
 export default function Home() {
@@ -26,7 +32,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {ENTRIES.map((entry) => (
             <Link
               key={entry.href}

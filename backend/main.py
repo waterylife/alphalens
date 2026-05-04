@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.dividend_index import router as dividend_router
 from backend.api.hk_tech import router as hktech_router
+from backend.api.investment_agent import router as agent_router
 from backend.api.us_tech import router as ustech_router
 from backend.api.portfolio import router as portfolio_router
 
@@ -37,6 +38,7 @@ app.include_router(dividend_router)
 app.include_router(hktech_router)
 app.include_router(ustech_router)
 app.include_router(portfolio_router)
+app.include_router(agent_router)
 
 
 @app.get("/api/health")

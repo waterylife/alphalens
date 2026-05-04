@@ -1,16 +1,9 @@
 "use client";
 
-// Matrix notes: action pill semantics + collapsible indicator glossary.
-// Used below the US and HK stock matrices. UI is intentionally muted —
-// these are reference notes, not primary signals.
+// Matrix notes: collapsible indicator glossary below the US and HK matrices.
+// UI is intentionally muted — these are reference notes, not primary signals.
 
 type Market = "us" | "hk";
-
-const ACTION_NOTE = [
-  { k: "买入", score: "≥ 65", desc: "多维度利好叠加，胜率与赔率都好" },
-  { k: "持有", score: "40 – 65", desc: "利好利空打架，方向不明，观望不急动" },
-  { k: "卖出", score: "< 40", desc: "多维度利空叠加，风险收益比不划算" },
-];
 
 type IndicatorDef = { name: string; en?: string; desc: string };
 
@@ -62,23 +55,6 @@ function Section({ title, defs }: { title: string; defs: IndicatorDef[] }) {
 export function MatrixNotes({ market }: { market: Market }) {
   return (
     <div className="px-5 py-4 border-t border-slate-100 text-[11px] text-slate-400 space-y-3">
-      {/* Action note — always visible */}
-      <div>
-        <span className="font-medium text-slate-500">动作说明：</span>
-        <span className="text-slate-400">
-          动作由打分规则决定（非 LLM），LLM 仅生成中文解释。
-        </span>
-        <ul className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1">
-          {ACTION_NOTE.map((a) => (
-            <li key={a.k} className="text-slate-500">
-              <span className="font-medium text-slate-700">{a.k}</span>
-              <span className="mx-1 text-slate-400">({a.score})</span>
-              <span className="text-slate-400">{a.desc}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
       {/* Indicator glossary — collapsed by default */}
       <details className="group">
         <summary className="cursor-pointer list-none select-none text-slate-500 hover:text-slate-700 flex items-center gap-1">

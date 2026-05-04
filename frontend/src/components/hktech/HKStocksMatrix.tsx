@@ -83,7 +83,7 @@ function ChangeCell({ value }: { value: number | null | undefined }) {
   return (
     <span
       className={`text-xs font-medium tabular-nums ${
-        pos ? "text-green-600" : "text-red-500"
+        pos ? "text-red-600" : "text-green-600"
       }`}
     >
       {pos ? "+" : ""}
@@ -129,7 +129,7 @@ function FlowCell({ value }: { value: number | null | undefined }) {
   return (
     <span
       className={`text-xs font-medium tabular-nums ${
-        pos ? "text-green-600" : "text-red-500"
+        pos ? "text-red-600" : "text-green-600"
       }`}
     >
       {pos ? "+" : "-"}
@@ -206,6 +206,18 @@ function MarketCapCell({ value }: { value: number | null | undefined }) {
   return <span className="text-xs tabular-nums text-slate-700">{display}</span>;
 }
 
+function SignedPctCell({ value }: { value: number | null | undefined }) {
+  if (value == null)
+    return <span className="text-slate-300 text-xs">—</span>;
+  const color = value >= 0 ? "text-red-600" : "text-green-600";
+  return (
+    <span className={`text-xs tabular-nums ${color}`}>
+      {value >= 0 ? "+" : ""}
+      {value.toFixed(1)}%
+    </span>
+  );
+}
+
 export function HKStocksMatrix({ tickers, onTickersChange }: Props) {
   const [section, setSection] = useState<SectionKey>("sentiment");
 
@@ -252,7 +264,7 @@ export function HKStocksMatrix({ tickers, onTickersChange }: Props) {
   // Columns per section (excluding 代码/名称/现价 + ✕ which are always shown)
   const renderHead = () => {
     if (section === "fundamental") {
-      return ["PE (TTM)", "PB", "PS (TTM)", "市值 (HKD)"];
+      return ["PE(TTM)", "Fwd PE", "PB", "PEG", "P/S", "市值", "营收增长", "ROE", "毛利率", "Beta"];
     }
     if (section === "sentiment") {
       return ["今日", "1M", "3M", "6M", "12M", "RSI14", "距MA200", "52w位置", "主力净流入", "5日主力", "量比"];
@@ -274,13 +286,31 @@ export function HKStocksMatrix({ tickers, onTickersChange }: Props) {
             {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.pe_ttm} />}
           </td>
           <td className="px-4 py-3">
+            {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.forward_pe} />}
+          </td>
+          <td className="px-4 py-3">
             {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.pb} />}
+          </td>
+          <td className="px-4 py-3">
+            {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.peg} />}
           </td>
           <td className="px-4 py-3">
             {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.ps_ttm} />}
           </td>
           <td className="px-4 py-3">
             {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <MarketCapCell value={fund?.market_cap_hkd_bn} />}
+          </td>
+          <td className="px-4 py-3">
+            {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <SignedPctCell value={fund?.revenue_growth_pct} />}
+          </td>
+          <td className="px-4 py-3">
+            {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.roe_pct} digits={1} suffix="%" />}
+          </td>
+          <td className="px-4 py-3">
+            {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.gross_margin_pct} digits={1} suffix="%" />}
+          </td>
+          <td className="px-4 py-3">
+            {loading ? <span className="text-slate-200 text-xs animate-pulse">…</span> : <Num value={fund?.beta} />}
           </td>
         </>
       );

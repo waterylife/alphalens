@@ -18,7 +18,7 @@ function signedPct(v: number | null | undefined, d = 2): string {
 
 function colorSigned(v: number | null | undefined): string {
   if (v == null) return "text-slate-300";
-  return v >= 0 ? "text-green-600" : "text-red-500";
+  return v >= 0 ? "text-red-600" : "text-green-600";
 }
 
 interface Props {
@@ -75,7 +75,7 @@ export function HKFlowsPanel({ tickers }: Props) {
                 <span className="text-slate-700 w-28 truncate">{r.name ?? "—"}</span>
                 <div className="flex-1 h-2 bg-slate-100 rounded relative overflow-hidden">
                   <div
-                    className={`absolute top-0 h-2 rounded ${pos ? "bg-green-400 left-1/2" : "bg-red-400 right-1/2"}`}
+                    className={`absolute top-0 h-2 rounded ${pos ? "bg-red-400 left-1/2" : "bg-green-400 right-1/2"}`}
                     style={{ width: `${pct / 2}%` }}
                   />
                 </div>

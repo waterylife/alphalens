@@ -9,15 +9,15 @@ interface Props {
 
 function tileColor(change: number | null | undefined): string {
   if (change == null) return "bg-slate-100 text-slate-400";
-  if (change >= 5) return "bg-green-700 text-white";
-  if (change >= 3) return "bg-green-600 text-white";
-  if (change >= 1) return "bg-green-500 text-white";
-  if (change > 0) return "bg-green-200 text-green-900";
+  if (change >= 5) return "bg-red-700 text-white";
+  if (change >= 3) return "bg-red-600 text-white";
+  if (change >= 1) return "bg-red-500 text-white";
+  if (change > 0) return "bg-red-200 text-red-900";
   if (change === 0) return "bg-slate-200 text-slate-700";
-  if (change > -1) return "bg-red-200 text-red-900";
-  if (change > -3) return "bg-red-400 text-white";
-  if (change > -5) return "bg-red-500 text-white";
-  return "bg-red-700 text-white";
+  if (change > -1) return "bg-green-200 text-green-900";
+  if (change > -3) return "bg-green-400 text-white";
+  if (change > -5) return "bg-green-500 text-white";
+  return "bg-green-700 text-white";
 }
 
 export function HKSentimentHeatmap({ tickers }: Props) {

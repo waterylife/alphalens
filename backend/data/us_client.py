@@ -30,7 +30,7 @@ TTL_STATIC = 60 * 60 * 24
 
 # Magnificent 7 + broad-market ETFs
 DEFAULT_US_TICKERS = [
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "SPY", "QQQ",
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "BRK-B", "SPY", "QQQ",
 ]
 
 # 11 SPDR sector ETFs
@@ -56,6 +56,61 @@ def normalize_us(ticker: str) -> str:
 
 def _yf_ticker(t: str):
     return yf.Ticker(t) if _YF_OK else None
+
+
+def _download_frame_for_ticker(hist: pd.DataFrame | None, ticker: str, n_tickers: int) -> pd.DataFrame | None:
+    """Extract one ticker's OHLCV frame from yfinance.download output.
+
+    yfinance may return columns as either (Ticker, Price) when batch
+    downloading, or (Price, Ticker) for some single-ticker symbols such as
+    BRK-B. Normalize both shapes to a plain Close/Volume frame.
+    """
+    if hist is None:
+        return None
+    if not isinstance(hist.columns, pd.MultiIndex):
+        return hist
+
+    level0 = set(map(str, hist.columns.get_level_values(0)))
+    level1 = set(map(str, hist.columns.get_level_values(1)))
+    if ticker in level0:
+        return hist[ticker]
+    if ticker in level1:
+        return hist.xs(ticker, axis=1, level=1)
+    if n_tickers == 1:
+        return hist.droplevel(1, axis=1)
+    return None
+
+
+def _price_to_book(ticker: str, info: dict[str, Any]) -> float | None:
+    """Return a usable P/B ratio from yfinance info.
+
+    yfinance reports BRK-B's ``bookValue`` on Berkshire Class A share terms,
+    while ``currentPrice`` is Class B. Since 1 BRK-A = 1500 BRK-B, adjust the
+    book value before deriving P/B. The raw ``priceToBook`` for BRK-B is
+    therefore tiny (~0.001) and should not be displayed.
+    """
+    raw_pb = _as_float(info.get("priceToBook"))
+    if raw_pb is not None and raw_pb >= 0.01:
+        return raw_pb
+
+    price = _as_float(info.get("currentPrice") or info.get("regularMarketPrice"))
+    book_value = _as_float(info.get("bookValue"))
+    if price is None or book_value is None or book_value <= 0:
+        return raw_pb if raw_pb and raw_pb > 0 else None
+
+    if ticker.upper().replace(".", "-") == "BRK-B" and book_value > 10_000:
+        book_value = book_value / 1500
+
+    pb = price / book_value
+    return pb if pb > 0 else None
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        f = float(value)
+        return f if f == f else None
+    except (TypeError, ValueError):
+        return None
 
 
 # ─────────────────────────── Snapshot ───────────────────────────
@@ -84,10 +139,7 @@ def fetch_snapshot(tickers: list[str]) -> dict[str, dict[str, Any]]:
             name = price = chg = vol_usd_mn = None
             try:
                 if hist is not None:
-                    if len(tickers) == 1:
-                        df = hist
-                    else:
-                        df = hist.get(t) if hasattr(hist, "get") else hist[t]
+                    df = _download_frame_for_ticker(hist, t, len(tickers))
                     df = df.dropna(subset=["Close"]) if df is not None else None
                     if df is not None and len(df) >= 2:
                         last = float(df["Close"].iloc[-1])
@@ -150,18 +202,25 @@ def fetch_fundamentals(ticker: str) -> dict[str, Any]:
 
         mc = num("marketCap")
         pe = num("trailingPE")
-        pb = num("priceToBook")
+        pb = _price_to_book(ticker, info)
         fpe = num("forwardPE")
+        peg = num("pegRatio")
+        ps = num("priceToSalesTrailing12Months")
+
+        def positive_rounded(v: float | None, digits = 2) -> float | None:
+            if v is None or v <= 0:
+                return None
+            rounded = round(v, digits)
+            return rounded if rounded > 0 else None
 
         return {
             "ticker": ticker,
             "name": info.get("shortName") or info.get("longName"),
             "pe_ttm": round(pe, 2) if pe and pe > 0 else None,
             "forward_pe": round(fpe, 2) if fpe and fpe > 0 else None,
-            "peg": round(num("pegRatio"), 2) if num("pegRatio") else None,
-            "pb": round(pb, 2) if pb and pb > 0 else None,
-            "ps_ttm": round(num("priceToSalesTrailing12Months"), 2)
-                if num("priceToSalesTrailing12Months") else None,
+            "peg": positive_rounded(peg),
+            "pb": positive_rounded(pb),
+            "ps_ttm": positive_rounded(ps),
             "market_cap_usd_bn": round(mc / 1_000_000_000, 1) if mc else None,
             "revenue_growth_pct": pct("revenueGrowth"),
             "gross_margin_pct": pct("grossMargins"),

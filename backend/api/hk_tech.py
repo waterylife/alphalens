@@ -12,6 +12,9 @@ from fastapi import APIRouter, Query
 from backend.data import hk_client, futu_client
 from backend.strategy import hk_signals
 from backend.schemas import (
+    BenchmarkCompare,
+    ComparePoint,
+    CompareSeries,
     HKStockSnapshot,
     HKStockReturn,
     HKStockSearchResult,
@@ -25,8 +28,10 @@ from backend.schemas import (
     HKSectorFlowRow,
     HKETFPanel,
     HKETFRow,
+    RangeStats,
     HKStrategySignal,
     HKStrategyComponents,
+    YearlyRow,
 )
 
 router = APIRouter(prefix="/api/hktech", tags=["hk-tech"])
@@ -385,6 +390,49 @@ def get_index_chart(years: int = Query(default=1, ge=1, le=5)) -> HKIndexChart:
     return HKIndexChart(points=points)
 
 
+@router.get("/index/benchmark-compare", response_model=BenchmarkCompare)
+def get_index_benchmark_compare(
+    years: int = Query(default=3, ge=1, le=5),
+) -> BenchmarkCompare:
+    """Compare HSTECH with Hang Seng Index over the selected range."""
+    idx_df = hk_client.hstech_index_hist(years=years)[["date", "close"]]
+    bm_df = hk_client.hsi_index_hist(years=years)[["date", "close"]]
+    merged = pd.merge(idx_df, bm_df, on="date", how="inner", suffixes=("_idx", "_bm"))
+    merged = merged.sort_values("date").reset_index(drop=True)
+
+    if merged.empty:
+        empty = _range_stats([], [])
+        return BenchmarkCompare(
+            start="",
+            end="",
+            index=CompareSeries(code="HSTECH", name="恒生科技指数", points=[], stats=empty),
+            benchmark=CompareSeries(code="HSI", name="恒生指数", points=[], stats=empty),
+            yearly=[],
+        )
+
+    dates = merged["date"].astype(str).tolist()
+    idx_closes = merged["close_idx"].astype(float).values
+    bm_closes = merged["close_bm"].astype(float).values
+
+    return BenchmarkCompare(
+        start=str(merged.iloc[0]["date"]),
+        end=str(merged.iloc[-1]["date"]),
+        index=CompareSeries(
+            code="HSTECH",
+            name="恒生科技指数",
+            points=[ComparePoint(date=d, close=float(c)) for d, c in zip(dates, idx_closes)],
+            stats=_range_stats(idx_closes, dates),
+        ),
+        benchmark=CompareSeries(
+            code="HSI",
+            name="恒生指数",
+            points=[ComparePoint(date=d, close=float(c)) for d, c in zip(dates, bm_closes)],
+            stats=_range_stats(bm_closes, dates),
+        ),
+        yearly=_yearly_rows(merged),
+    )
+
+
 @router.get("/stocks/signals", response_model=list[HKStrategySignal])
 def get_stocks_signals(
     tickers: str = Query(default=",".join(DEFAULT_TICKERS)),
@@ -422,3 +470,93 @@ def get_stocks_signals(
     order = {t: i for i, t in enumerate(tl)}
     results.sort(key=lambda r: order.get(r.ticker, 999))
     return results
+
+
+def _range_stats(closes, dates) -> RangeStats:
+    import numpy as np
+
+    closes = list(closes)
+    if len(closes) < 2:
+        return RangeStats(
+            return_pct=None,
+            annualized_pct=None,
+            max_drawdown=None,
+            max_gain=None,
+            volatility=None,
+        )
+
+    s = pd.Series(closes).astype(float)
+    first, last = s.iloc[0], s.iloc[-1]
+    ret = (last / first - 1) * 100
+
+    d0 = pd.to_datetime(dates[0])
+    dN = pd.to_datetime(dates[-1])
+    years = max((dN - d0).days / 365.25, 1e-9)
+    ann = ((last / first) ** (1 / years) - 1) * 100 if first > 0 else None
+
+    dr = s.pct_change().dropna()
+    vol = float(dr.std() * np.sqrt(252) * 100) if len(dr) > 1 else None
+    running_max = s.cummax()
+    max_dd = float(((s - running_max) / running_max * 100).min())
+    running_min = s.cummin()
+    max_gain = float(((s - running_min) / running_min * 100).max())
+
+    return RangeStats(
+        return_pct=round(float(ret), 2),
+        annualized_pct=round(float(ann), 2) if ann is not None else None,
+        max_drawdown=round(max_dd, 2),
+        max_gain=round(max_gain, 2),
+        volatility=round(vol, 2) if vol is not None else None,
+    )
+
+
+def _yearly_rows(merged: pd.DataFrame) -> list[YearlyRow]:
+    import numpy as np
+
+    if merged.empty:
+        return []
+    df = merged.copy()
+    df["year"] = pd.to_datetime(df["date"]).dt.year
+    rows: list[YearlyRow] = []
+
+    for year in sorted(df["year"].unique().tolist(), reverse=True):
+        ydf = df[df["year"] == year]
+        if len(ydf) < 2:
+            continue
+
+        prev = df[df["year"] < year]
+        prev_last_idx = prev.iloc[-1]["close_idx"] if not prev.empty else ydf.iloc[0]["close_idx"]
+        prev_last_bm = prev.iloc[-1]["close_bm"] if not prev.empty else ydf.iloc[0]["close_bm"]
+        end_idx = ydf.iloc[-1]["close_idx"]
+        end_bm = ydf.iloc[-1]["close_bm"]
+
+        def stats(closes_list):
+            s = pd.Series(closes_list).astype(float)
+            dr = s.pct_change().dropna()
+            vol = float(dr.std() * np.sqrt(252) * 100) if len(dr) > 1 else None
+            running_max = s.cummax()
+            max_dd = float(((s - running_max) / running_max * 100).min())
+            running_min = s.cummin()
+            max_gain = float(((s - running_min) / running_min * 100).max())
+            return vol, max_dd, max_gain
+
+        idx_series = [prev_last_idx] + ydf["close_idx"].tolist() if not prev.empty else ydf["close_idx"].tolist()
+        bm_series = [prev_last_bm] + ydf["close_bm"].tolist() if not prev.empty else ydf["close_bm"].tolist()
+        idx_vol, idx_dd, idx_gain = stats(idx_series)
+        bm_vol, bm_dd, bm_gain = stats(bm_series)
+
+        rows.append(
+            YearlyRow(
+                year=int(year),
+                index_return=round(float((end_idx / prev_last_idx - 1) * 100), 2),
+                benchmark_return=round(float((end_bm / prev_last_bm - 1) * 100), 2),
+                index_volatility=round(idx_vol, 2) if idx_vol is not None else None,
+                benchmark_volatility=round(bm_vol, 2) if bm_vol is not None else None,
+                index_max_drawdown=round(idx_dd, 2),
+                benchmark_max_drawdown=round(bm_dd, 2),
+                index_max_gain=round(idx_gain, 2),
+                benchmark_max_gain=round(bm_gain, 2),
+            )
+        )
+
+    return rows

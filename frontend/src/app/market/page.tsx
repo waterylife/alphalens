@@ -30,6 +30,24 @@ const VALUATION_RANGES = [
   { label: "10年", value: 10 },
 ];
 
+const UPDATE_POLICIES: Record<Tab, { title: string; detail: string }> = {
+  dividend: {
+    title: "更新策略: 页面触发请求",
+    detail:
+      "红利指数数据在进入、刷新或切回页面时请求；后端估值概览缓存 10 分钟，日线/估值历史缓存 4 小时。",
+  },
+  hktech: {
+    title: "更新策略: 前端轮询 + 后端缓存",
+    detail:
+      "港股个股报价/指数每 60 秒请求一次；ETF/收益/资金 5 分钟，技术面 10 分钟，流动性 15 分钟，基本面 60 分钟。后端报价缓存约 10 分钟，Futu 资金缓存约 5 分钟，历史/基本面缓存 4 小时。",
+  },
+  ustech: {
+    title: "更新策略: 前端轮询 + 后端缓存",
+    detail:
+      "美股个股报价每 60 秒请求一次，指数 10 分钟；板块/宏观/收益 5 分钟，技术面 10 分钟，综合信号 15 分钟，基本面 60 分钟。后端个股报价缓存约 5 分钟，历史/基本面缓存 4 小时。",
+  },
+};
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("dividend");
 
@@ -116,6 +134,16 @@ export default function Home() {
               {tab.label}
             </button>
           ))}
+        </div>
+
+        <div className="max-w-7xl mx-auto px-6 pb-4">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            <span className="font-medium text-slate-700">
+              {UPDATE_POLICIES[activeTab].title}
+            </span>
+            <span className="mx-1.5 text-slate-300">/</span>
+            <span>{UPDATE_POLICIES[activeTab].detail}</span>
+          </div>
         </div>
       </header>
 

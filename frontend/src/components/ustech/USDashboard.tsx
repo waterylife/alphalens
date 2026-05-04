@@ -10,7 +10,7 @@ import {
 import { MatrixNotes } from "@/components/MatrixNotes";
 import { SignalBoard } from "@/components/SignalBoard";
 
-const DEFAULT_TICKERS = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","SPY","QQQ"];
+const DEFAULT_TICKERS = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","BRK-B","SPY","QQQ"];
 const LS_KEY = "alphalens_ustech_tickers";
 
 function loadTickers(): string[] {
@@ -19,7 +19,16 @@ function loadTickers(): string[] {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return DEFAULT_TICKERS;
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      const normalized = parsed
+        .map((t) => String(t).trim().toUpperCase())
+        .filter(Boolean);
+      const merged = [...normalized];
+      for (const ticker of DEFAULT_TICKERS) {
+        if (!merged.includes(ticker)) merged.push(ticker);
+      }
+      return merged;
+    }
   } catch {}
   return DEFAULT_TICKERS;
 }
@@ -33,7 +42,7 @@ function signedPct(v: number | null | undefined, d = 2): string {
 
 function colorSigned(v: number | null | undefined): string {
   if (v == null) return "text-slate-300";
-  return v >= 0 ? "text-green-600" : "text-red-500";
+  return v >= 0 ? "text-red-600" : "text-green-600";
 }
 
 function num(v: number | null | undefined, d = 2, suffix = ""): string {
@@ -133,13 +142,13 @@ function IndexOverview() {
 
 function tileColor(v: number | null | undefined): string {
   if (v == null) return "bg-slate-100 text-slate-400";
-  if (v >= 3) return "bg-green-600 text-white";
-  if (v >= 1) return "bg-green-500 text-white";
-  if (v > 0) return "bg-green-200 text-green-900";
+  if (v >= 3) return "bg-red-600 text-white";
+  if (v >= 1) return "bg-red-500 text-white";
+  if (v > 0) return "bg-red-200 text-red-900";
   if (v === 0) return "bg-slate-200 text-slate-700";
-  if (v > -1) return "bg-red-200 text-red-900";
-  if (v > -3) return "bg-red-400 text-white";
-  return "bg-red-600 text-white";
+  if (v > -1) return "bg-green-200 text-green-900";
+  if (v > -3) return "bg-green-400 text-white";
+  return "bg-green-600 text-white";
 }
 
 function SentimentHeatmap({ tickers }: { tickers: string[] }) {
@@ -235,7 +244,7 @@ function StocksMatrix({ tickers, onTickersChange }: { tickers: string[]; onTicke
   };
 
   const head = section === "fundamental"
-    ? ["PE(TTM)", "Fwd PE", "PEG", "P/S", "市值", "营收增长", "ROE", "毛利率", "Beta"]
+    ? ["PE(TTM)", "Fwd PE", "PB", "PEG", "P/S", "市值", "营收增长", "ROE", "毛利率", "Beta"]
     : section === "sentiment"
     ? ["今日", "1M", "3M", "6M", "12M", "RSI14", "距 MA200", "52w", "距 ATH"]
     : ["今日成交", "ADTV 20d", "做空占比"];
@@ -246,6 +255,7 @@ function StocksMatrix({ tickers, onTickersChange }: { tickers: string[]; onTicke
       <>
         <td className="px-3 py-3 text-xs tabular-nums text-slate-700">{num(f?.pe_ttm ?? null)}</td>
         <td className="px-3 py-3 text-xs tabular-nums text-slate-700">{num(f?.forward_pe ?? null)}</td>
+        <td className="px-3 py-3 text-xs tabular-nums text-slate-700">{num(f?.pb ?? null)}</td>
         <td className="px-3 py-3 text-xs tabular-nums text-slate-700">{num(f?.peg ?? null)}</td>
         <td className="px-3 py-3 text-xs tabular-nums text-slate-700">{num(f?.ps_ttm ?? null)}</td>
         <td className="px-3 py-3 text-xs tabular-nums text-slate-700">{bigNum(f?.market_cap_usd_bn ?? null)}</td>
@@ -389,7 +399,7 @@ function SectorFlow() {
               <span className="font-mono text-slate-500 w-12">{r.ticker}</span>
               <span className="text-slate-700 w-28">{r.sector}</span>
               <div className="flex-1 h-2 bg-slate-100 rounded relative overflow-hidden">
-                <div className={`absolute top-0 h-2 rounded ${pos ? "bg-green-400 left-1/2" : "bg-red-400 right-1/2"}`}
+                <div className={`absolute top-0 h-2 rounded ${pos ? "bg-red-400 left-1/2" : "bg-green-400 right-1/2"}`}
                   style={{ width: `${pct / 2}%` }} />
               </div>
               <span className={`w-16 text-right tabular-nums ${colorSigned(r.change_pct)}`}>{signedPct(r.change_pct, 2)}</span>

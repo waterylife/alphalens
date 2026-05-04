@@ -152,17 +152,18 @@ def hk_stock_price_hist(ticker: str, years: int = 2) -> pd.DataFrame:
     return cache.fetch("hk_stock_hist_sina", key, TTL_DAILY, _fetch)
 
 
-def hstech_index_hist(years: int = 2) -> pd.DataFrame:
-    """HSTECH index daily price history via Sina.
+def hk_index_hist(symbol: str, years: int = 2) -> pd.DataFrame:
+    """HK index daily price history via Sina.
 
     Returns columns: date (ISO str), open, high, low, close, volume.
     """
-    key = f"hstech:{years}"
+    clean_symbol = symbol.strip().upper()
+    key = f"{clean_symbol}:{years}"
 
     def _fetch() -> pd.DataFrame:
-        df = ak.stock_hk_index_daily_sina(symbol="HSTECH")
+        df = ak.stock_hk_index_daily_sina(symbol=clean_symbol)
         if df is None or df.empty:
-            raise ValueError("HSTECH data empty from sina")
+            raise ValueError(f"{clean_symbol} data empty from sina")
         df = df.copy()
         df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
         cols = [c for c in ["date", "open", "high", "low", "close", "volume"] if c in df.columns]
@@ -170,7 +171,17 @@ def hstech_index_hist(years: int = 2) -> pd.DataFrame:
         cutoff = (dt.date.today() - dt.timedelta(days=365 * years)).strftime("%Y-%m-%d")
         return df[df["date"] >= cutoff].reset_index(drop=True)
 
-    return cache.fetch("hstech_hist_sina", key, TTL_DAILY, _fetch)
+    return cache.fetch("hk_index_hist_sina", key, TTL_DAILY, _fetch)
+
+
+def hstech_index_hist(years: int = 2) -> pd.DataFrame:
+    """HSTECH index daily price history via Sina."""
+    return hk_index_hist("HSTECH", years=years)
+
+
+def hsi_index_hist(years: int = 2) -> pd.DataFrame:
+    """Hang Seng Index daily price history via Sina."""
+    return hk_index_hist("HSI", years=years)
 
 
 # ─────────────────────────── Computed returns ───────────────────────────
@@ -288,8 +299,10 @@ def _clean_num(v: Any) -> float | None:
 def fetch_stock_fundamentals(ticker: str) -> dict[str, Any]:
     """Fetch fundamentals from yfinance (cached 4h). ticker is 5-digit HK code."""
     empty = {
-        "ticker": ticker, "name": None, "pe_ttm": None,
-        "pb": None, "ps_ttm": None, "market_cap_hkd_bn": None,
+        "ticker": ticker, "name": None, "pe_ttm": None, "forward_pe": None,
+        "pb": None, "peg": None, "ps_ttm": None, "market_cap_hkd_bn": None,
+        "revenue_growth_pct": None, "gross_margin_pct": None,
+        "roe_pct": None, "beta": None,
     }
     if yf is None:
         return empty
@@ -301,21 +314,39 @@ def fetch_stock_fundamentals(ticker: str) -> dict[str, Any]:
         except Exception:
             return empty
         pe = _clean_num(info.get("trailingPE"))
+        fpe = _clean_num(info.get("forwardPE"))
         pb = _clean_num(info.get("priceToBook"))
+        peg = _clean_num(info.get("pegRatio"))
         ps = _clean_num(info.get("priceToSalesTrailing12Months"))
         mcap = _clean_num(info.get("marketCap"))
+        revenue_growth = _clean_num(info.get("revenueGrowth"))
+        gross_margin = _clean_num(info.get("grossMargins"))
+        roe = _clean_num(info.get("returnOnEquity"))
+        beta = _clean_num(info.get("beta"))
         # Keep only positive PE/PB (negative = loss, not meaningful for valuation)
         if pe is not None and pe <= 0:
             pe = None
+        if fpe is not None and fpe <= 0:
+            fpe = None
         if pb is not None and pb <= 0:
             pb = None
+        if peg is not None and peg <= 0:
+            peg = None
+        if ps is not None and ps <= 0:
+            ps = None
         return {
             "ticker": ticker,
             "name": info.get("shortName") or info.get("longName"),
             "pe_ttm": round(pe, 2) if pe else None,
+            "forward_pe": round(fpe, 2) if fpe else None,
             "pb": round(pb, 2) if pb else None,
+            "peg": round(peg, 2) if peg else None,
             "ps_ttm": round(ps, 2) if ps else None,
             "market_cap_hkd_bn": round(mcap / 1e9, 2) if mcap else None,
+            "revenue_growth_pct": round(revenue_growth * 100, 2) if revenue_growth is not None else None,
+            "gross_margin_pct": round(gross_margin * 100, 2) if gross_margin is not None else None,
+            "roe_pct": round(roe * 100, 2) if roe is not None else None,
+            "beta": round(beta, 2) if beta is not None else None,
         }
 
     try:
