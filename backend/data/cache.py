@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import pickle
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,6 +23,8 @@ _DEFAULT_DB_PATH = Path(os.environ.get(
     "ALPHALENS_CACHE_DB",
     Path(__file__).resolve().parents[2] / ".cache" / "akshare.sqlite",
 ))
+
+_PRODUCER_LOCK = threading.RLock()
 
 
 class Cache:
@@ -74,6 +77,13 @@ class Cache:
                 (namespace, key, payload, time.time()),
             )
 
+    def clear(self, namespace: str | None = None) -> None:
+        with self._connect() as conn:
+            if namespace is None:
+                conn.execute("DELETE FROM cache")
+            else:
+                conn.execute("DELETE FROM cache WHERE namespace=?", (namespace,))
+
     def fetch(
         self,
         namespace: str,
@@ -84,9 +94,13 @@ class Cache:
         cached = self.get(namespace, key, ttl_seconds)
         if cached is not None:
             return cached
-        value = producer()
-        self.set(namespace, key, value)
-        return value
+        with _PRODUCER_LOCK:
+            cached = self.get(namespace, key, ttl_seconds)
+            if cached is not None:
+                return cached
+            value = producer()
+            self.set(namespace, key, value)
+            return value
 
 
 # Module-level singleton — cheap, avoids passing around explicitly.

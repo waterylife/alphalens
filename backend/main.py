@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.dividend_index import router as dividend_router
+from backend.api.data_platform import router as data_router
 from backend.api.hk_tech import router as hktech_router
 from backend.api.investment_agent import router as agent_router
 from backend.api.us_tech import router as ustech_router
@@ -35,6 +36,7 @@ app.add_middleware(
 )
 
 app.include_router(dividend_router)
+app.include_router(data_router)
 app.include_router(hktech_router)
 app.include_router(ustech_router)
 app.include_router(portfolio_router)

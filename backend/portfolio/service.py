@@ -13,8 +13,9 @@ from datetime import datetime, timezone
 
 from backend.portfolio import db, fx
 from backend.portfolio.sources import futu as futu_src
-from backend.portfolio.sources import quotes as quotes_src
 from backend.portfolio.sources.futu import FutuPosition, codes_match
+from backend.data_platform.models import AssetIdentity
+from backend.data_platform.service import market_data_service
 
 
 _BROKER = "富途证券"
@@ -36,6 +37,28 @@ def _normalize_code(code: str | None) -> str | None:
     if not code:
         return None
     return code.lstrip("0").upper() or code.upper()
+
+
+def _market_for_quote(market: str | None) -> str:
+    if market in ("香港", "HK"):
+        return "HK"
+    if market in ("美国", "US"):
+        return "US"
+    if market in ("中国", "A股", "CN"):
+        return "CN"
+    return "UNKNOWN"
+
+
+def _asset_type_for_quote(asset_class: str | None) -> str:
+    if asset_class == "债券":
+        return "bond"
+    if asset_class == "基金":
+        return "fund"
+    if asset_class == "现金":
+        return "cash"
+    if asset_class in ("股票", "黄金"):
+        return "stock"
+    return "unknown"
 
 
 def sync_futu() -> dict:
@@ -285,9 +308,15 @@ def import_tiantian_browser_rows(rows: list[dict]) -> dict:
                 profile = classify_fund_holding(name, code)
                 name = profile["name"] or name
                 existing = _find_existing_by_broker_code(conn, "天天基金", code)
-                current_price = quotes_src.fetch_quote(
-                    profile["market"], code, asset_class=profile["asset_class"]
+                quote = market_data_service.get_quote(
+                    AssetIdentity(
+                        asset_type="fund",
+                        market="FUND",
+                        code=code,
+                        currency="CNY",
+                    )
                 )
+                current_price = quote.data.price
                 if current_price is None:
                     current_price = cost_price
 
@@ -364,10 +393,27 @@ def classify_fund_holding(name: str, code: str | None = None) -> dict[str, str |
     stored as a separate generic "基金" asset class.
     """
     code = (code or "").strip().zfill(6) if code else ""
-    meta = quotes_src.fetch_fund_profile(code) if code else None
-    fund_name = (meta or {}).get("name") or name.strip()
-    fund_type = (meta or {}).get("type") or ""
-    text = f"{fund_name} {fund_type}"
+    profile: dict | None = None
+    if code:
+        try:
+            result = market_data_service.get_fund_profile(
+                AssetIdentity(asset_type="fund", market="FUND", code=code, currency="CNY")
+            )
+            profile = result.to_dict()["data"]
+        except Exception:
+            profile = None
+
+    fund_name = (profile or {}).get("name") or name.strip()
+    if profile and profile.get("asset_class"):
+        return {
+            "name": fund_name,
+            "market": profile.get("market") or "中国",
+            "asset_class": profile.get("asset_class"),
+            "tag_l1": profile.get("tag_l1"),
+            "tag_l2": profile.get("tag_l2"),
+        }
+
+    text = fund_name
 
     asset_class = "股票"
     tag_l1: str | None = "价值成长"
@@ -434,7 +480,7 @@ def refresh_prices(force: bool = False) -> dict:
     try:
         rates, _ = fx.refresh_and_persist()
         if force:
-            quotes_src.reset_cache()
+            market_data_service.reset_quote_cache()
 
         n_updated = n_skipped = n_no_quote = 0
         skipped_examples: list[str] = []
@@ -458,9 +504,15 @@ def refresh_prices(force: bool = False) -> dict:
                     n_skipped += 1
                     continue
 
-                price = quotes_src.fetch_quote(
-                    r["market"], r["code"], asset_class=r["asset_class"]
+                quote = market_data_service.get_quote(
+                    AssetIdentity(
+                        asset_type="fund" if r["broker"] == "天天基金" else _asset_type_for_quote(r["asset_class"]),
+                        market="FUND" if r["broker"] == "天天基金" else _market_for_quote(r["market"]),
+                        code=r["code"],
+                        currency=r["currency"],
+                    )
                 )
+                price = quote.data.price
                 if price is None:
                     n_no_quote += 1
                     if len(skipped_examples) < 5:

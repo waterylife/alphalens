@@ -8,6 +8,8 @@ import concurrent.futures
 from fastapi import APIRouter, Query
 
 from backend.data import us_client
+from backend.data_platform.models import AssetIdentity
+from backend.data_platform.service import market_data_service
 from backend.strategy import us_signals
 from backend.schemas import (
     USStockSnapshot, USStockReturn, USStockFundamental, USStockTechnical,
@@ -31,14 +33,15 @@ def get_snapshot(
 ) -> list[USStockSnapshot]:
     tl = [us_client.normalize_us(t) for t in tickers.split(",") if t.strip()]
     as_of = dt.date.today().isoformat()
-    snap_map = us_client.fetch_snapshot(tl)
     out = []
     for t in tl:
-        d = snap_map.get(t) or {}
+        quote = market_data_service.get_quote(
+            AssetIdentity(asset_type="stock", market="US", code=t, currency="USD")
+        )
         out.append(USStockSnapshot(
-            ticker=t, name=d.get("name"), price=d.get("price"),
-            change_pct=d.get("change_pct"), volume_usd_mn=d.get("volume_usd_mn"),
-            as_of=as_of,
+            ticker=t, name=quote.data.name, price=quote.data.price,
+            change_pct=quote.data.change_pct, volume_usd_mn=quote.data.volume_mn,
+            as_of=quote.data.as_of or as_of,
         ))
     return out
 
@@ -51,7 +54,10 @@ def get_returns(
 
     def one(t: str) -> USStockReturn:
         try:
-            return USStockReturn(**us_client.compute_returns(t))
+            result = market_data_service.get_returns(
+                AssetIdentity(asset_type="stock", market="US", code=t, currency="USD")
+            )
+            return USStockReturn(**result.to_dict()["data"])
         except Exception:
             return USStockReturn(ticker=t)
 
@@ -71,7 +77,10 @@ def get_fundamentals(
 
     def one(t: str) -> USStockFundamental:
         try:
-            return USStockFundamental(**us_client.fetch_fundamentals(t))
+            result = market_data_service.get_fundamentals(
+                AssetIdentity(asset_type="stock", market="US", code=t, currency="USD")
+            )
+            return USStockFundamental(**result.to_dict()["data"])
         except Exception:
             return USStockFundamental(ticker=t)
 
@@ -91,7 +100,10 @@ def get_technicals(
 
     def one(t: str) -> USStockTechnical:
         try:
-            return USStockTechnical(**us_client.compute_technicals(t))
+            result = market_data_service.get_technicals(
+                AssetIdentity(asset_type="stock", market="US", code=t, currency="USD")
+            )
+            return USStockTechnical(**result.to_dict()["data"])
         except Exception:
             return USStockTechnical(ticker=t)
 

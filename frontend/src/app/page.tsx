@@ -3,7 +3,7 @@ import Link from "next/link";
 const ENTRIES = [
   {
     href: "/market",
-    title: "金融市场看盘",
+    title: "金融市场看板",
     description: "红利指数、港股科技、美股科技的估值、走势、信号与市场情绪。",
     meta: "指数估值 · 基准对比 · 科技股信号",
   },

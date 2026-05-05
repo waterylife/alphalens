@@ -10,6 +10,8 @@ import pandas as pd
 from fastapi import APIRouter, Query
 
 from backend.data import hk_client, futu_client
+from backend.data_platform.models import AssetIdentity
+from backend.data_platform.service import market_data_service
 from backend.strategy import hk_signals
 from backend.schemas import (
     BenchmarkCompare,
@@ -110,26 +112,23 @@ def get_stocks_snapshot(
 ) -> list[HKStockSnapshot]:
     ticker_list = [hk_client.normalize_ticker(t) for t in tickers.split(",") if t.strip()]
     as_of = dt.date.today().isoformat()
-    yf_lookup = hk_client.fetch_stock_snapshots_yf(ticker_list)
-
     results: list[HKStockSnapshot] = []
     for ticker in ticker_list:
-        if ticker in yf_lookup:
-            d = yf_lookup[ticker]
-            results.append(HKStockSnapshot(
-                ticker=ticker,
-                name=d.get("name"),
-                price=d.get("price"),
-                change_pct=d.get("change_pct"),
-                pe_ttm=None,
-                pb=None,
-                volume_hkd_mn=d.get("volume_hkd_mn"),
-                as_of=as_of,
-            ))
-        else:
-            results.append(HKStockSnapshot(ticker=ticker, name=None, price=None,
-                                           change_pct=None, pe_ttm=None, pb=None,
-                                           volume_hkd_mn=None, as_of=as_of))
+        quote = market_data_service.get_quote(
+            AssetIdentity(asset_type="stock", market="HK", code=ticker, currency="HKD"),
+            freshness="realtime",
+            verify=True,
+        )
+        results.append(HKStockSnapshot(
+            ticker=ticker,
+            name=quote.data.name,
+            price=quote.data.price,
+            change_pct=quote.data.change_pct,
+            pe_ttm=None,
+            pb=None,
+            volume_hkd_mn=quote.data.volume_mn,
+            as_of=quote.data.as_of or as_of,
+        ))
     return results
 
 
@@ -145,7 +144,10 @@ def get_stocks_returns(
 
     def compute(t: str) -> HKStockReturn:
         try:
-            d = hk_client.compute_stock_returns(t)
+            result = market_data_service.get_returns(
+                AssetIdentity(asset_type="stock", market="HK", code=t, currency="HKD")
+            )
+            d = result.to_dict()["data"]
         except Exception:
             d = {"ticker": t, "ret_1m": None, "ret_3m": None, "ret_6m": None, "ret_12m": None}
         return HKStockReturn(**d)
@@ -201,31 +203,14 @@ def get_stocks_technicals(
     """RSI14 / dist_MA200 / ADTV_20d + Futu snapshot (turnover_rate / volume_ratio) + capital flow."""
     ticker_list = [hk_client.normalize_ticker(t) for t in tickers.split(",") if t.strip()]
 
-    # Bulk snapshot once (cheap single RPC)
-    snap_map = futu_client.fetch_snapshot(ticker_list)
-
     def compute(t: str) -> HKStockTechnical:
         try:
-            d = hk_client.compute_stock_technicals(t)
+            result = market_data_service.get_technicals(
+                AssetIdentity(asset_type="stock", market="HK", code=t, currency="HKD")
+            )
+            d = result.to_dict()["data"]
         except Exception:
             d = {"ticker": t, "rsi14": None, "dist_ma200_pct": None, "adtv_20d_hkd_mn": None}
-        snap = snap_map.get(t) or {}
-        d["turnover_rate"] = snap.get("turnover_rate")
-        d["volume_ratio"] = snap.get("volume_ratio")
-        try:
-            cf = futu_client.fetch_capital_flow(t)
-            d["net_inflow_today_hkd_mn"] = cf.get("net_inflow_today_hkd_mn")
-            d["net_inflow_5d_hkd_mn"] = cf.get("net_inflow_5d_hkd_mn")
-        except Exception:
-            d["net_inflow_today_hkd_mn"] = None
-            d["net_inflow_5d_hkd_mn"] = None
-        try:
-            ob = futu_client.fetch_order_book_metrics(t)
-            d["bid_ask_spread_bps"] = ob.get("bid_ask_spread_bps")
-            d["depth_ratio_5"] = ob.get("depth_ratio_5")
-        except Exception:
-            d["bid_ask_spread_bps"] = None
-            d["depth_ratio_5"] = None
         return HKStockTechnical(**d)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
@@ -245,7 +230,10 @@ def get_stocks_fundamentals(
 
     def fetch(t: str) -> HKStockFundamental:
         try:
-            d = hk_client.fetch_stock_fundamentals(t)
+            result = market_data_service.get_fundamentals(
+                AssetIdentity(asset_type="stock", market="HK", code=t, currency="HKD")
+            )
+            d = result.to_dict()["data"]
         except Exception:
             d = {"ticker": t, "name": None, "pe_ttm": None, "pb": None,
                  "ps_ttm": None, "market_cap_hkd_bn": None}

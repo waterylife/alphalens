@@ -10,19 +10,12 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
-
-import requests
-from bs4 import BeautifulSoup
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from backend.data import hk_client, us_client
+from backend.data_platform.models import AssetIdentity
+from backend.data_platform.service import market_data_service
 from backend.strategy.llm import call_gemini, call_minimax
-
-try:
-    import akshare as ak
-except ImportError:
-    ak = None
 
 
 _DEFAULT_DB_PATH = Path(
@@ -426,11 +419,7 @@ def _collect_market_data(symbols: list[str]) -> dict:
     market = _detect_market(primary)
     symbol = _normalize_for_market(primary, market)
     try:
-        if market == "HK":
-            return _collect_hk_data(symbol)
-        if market == "US":
-            return _collect_us_data(symbol)
-        return _collect_cn_data(symbol)
+        return _collect_research_context(symbol, market)
     except Exception as exc:
         return {
             "symbol": symbol,
@@ -441,288 +430,20 @@ def _collect_market_data(symbols: list[str]) -> dict:
         }
 
 
-def _collect_hk_data(ticker: str) -> dict:
-    snapshot = hk_client.fetch_stock_snapshots_yf([ticker]).get(ticker, {})
-    fundamentals = hk_client.fetch_stock_fundamentals(ticker)
-    returns = hk_client.compute_stock_returns(ticker)
-    technicals = hk_client.compute_stock_technicals(ticker)
-    try:
-        liquidity = hk_client.fetch_market_liquidity()
-    except Exception:
-        liquidity = {}
-    try:
-        southbound = hk_client.fetch_southbound_flow()
-    except Exception:
-        southbound = {}
-    official_filings = _fetch_hk_official_filings(ticker)
-
-    return {
-        "symbol": ticker,
-        "market": "HK",
-        "currency": "HKD",
-        "as_of": dt.date.today().isoformat(),
-        "quote": snapshot,
-        "fundamentals": fundamentals,
-        "returns": returns,
-        "technicals": technicals,
-        "macro_liquidity": liquidity,
-        "southbound_market_flow": southbound,
-        "official_filings": official_filings,
-        "sources": {
-            "quote_primary": f"https://finance.yahoo.com/quote/{ticker.lstrip('0').zfill(4)}.HK",
-            "quote_secondary": f"https://finance.sina.com.cn/stock/hkstock/quote.html?code={ticker}",
-            "fundamentals": f"https://finance.yahoo.com/quote/{ticker.lstrip('0').zfill(4)}.HK/key-statistics",
-            "official_filings": "https://www.hkexnews.hk",
-            "macro": "Yahoo Finance / akshare HIBOR",
-            "southbound": "akshare 港股通数据",
-        },
-        "limitations": [
-            "HKEX 年报/季报正文 PDF 暂未自动 OCR；已提供官方检索入口/候选公告，关键财报字段需人工核验原文。",
-            "PE/PB/PS 等估值主要来自 Yahoo Finance/Futu 兼容数据源，必要时需用富途/雪球二次交叉验证。",
-        ],
-    }
-
-
-def _collect_us_data(ticker: str) -> dict:
-    snapshot = us_client.fetch_snapshot([ticker]).get(ticker, {})
-    fundamentals = us_client.fetch_fundamentals(ticker)
-    returns = us_client.compute_returns(ticker)
-    technicals = us_client.compute_technicals(ticker)
-    macro = us_client.fetch_macro()
-    official_filings = _fetch_sec_filings(ticker)
-
-    return {
-        "symbol": ticker,
-        "market": "US",
-        "currency": "USD",
-        "as_of": dt.date.today().isoformat(),
-        "quote": snapshot,
-        "fundamentals": fundamentals,
-        "returns": returns,
-        "technicals": technicals,
-        "macro_liquidity": macro,
-        "official_filings": official_filings,
-        "sources": {
-            "quote_primary": f"https://finance.yahoo.com/quote/{ticker}",
-            "fundamentals": f"https://finance.yahoo.com/quote/{ticker}/key-statistics",
-            "official_filings": f"https://www.sec.gov/edgar/search/#/q={ticker}",
-            "macro": "Yahoo Finance: ^VIX / ^TNX / DX-Y.NYB / ^IRX",
-        },
-        "limitations": [
-            "SEC 10-K/10-Q 已自动抓取候选原文并抽取前段文本；完整 XBRL/表格指标后续可继续增强。",
-            "一致预期、目标价、13F 变化尚未自动采集；报告中不得编造这些字段。",
-        ],
-    }
-
-
-def _collect_cn_data(ticker: str) -> dict:
-    out: dict = {
-        "symbol": ticker,
-        "market": "CN",
-        "currency": "CNY",
-        "as_of": dt.date.today().isoformat(),
-        "quote": {},
-        "fundamentals": {},
-        "sources": {
-            "quote_primary": f"https://quote.eastmoney.com/{'sh' if ticker.startswith('6') else 'sz'}{ticker}.html",
-            "official_filings": "http://www.cninfo.com.cn",
-            "macro": "中国债券信息网 / SHIBOR / PBOC",
-        },
-        "limitations": [
-            "A 股完整财报、估值分位、北向资金和宏观数据尚未全部自动采集；缺失项必须列为待补充。",
-        ],
-    }
-    if ak is None:
-        out["limitations"].append("akshare 不可用，无法执行 A 股在线取数。")
-        return out
-    try:
-        spot = ak.stock_zh_a_spot_em()
-        if spot is not None and not spot.empty and "代码" in spot.columns:
-            row = spot[spot["代码"].astype(str) == ticker]
-            if not row.empty:
-                r = row.iloc[0]
-                out["quote"] = {
-                    "name": r.get("名称"),
-                    "price": _safe_float(r.get("最新价")),
-                    "change_pct": _safe_float(r.get("涨跌幅")),
-                    "volume_cny_mn": _safe_float(r.get("成交额")),
-                    "pe_ttm": _safe_float(r.get("市盈率-动态")),
-                    "pb": _safe_float(r.get("市净率")),
-                }
-    except Exception as exc:
-        out["limitations"].append(f"A 股行情抓取失败: {exc}")
-    out["official_filings"] = _fetch_cn_official_filings(ticker)
-    return out
-
-
-def _http_get_json(url: str) -> dict:
-    headers = {
-        "User-Agent": "AlphaLens research app shawn@example.com",
-        "Accept-Encoding": "gzip, deflate",
-    }
-    resp = requests.get(url, headers=headers, timeout=20)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def _http_get_text(url: str) -> str:
-    headers = {
-        "User-Agent": "AlphaLens research app shawn@example.com",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-    resp = requests.get(url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    return resp.text
-
-
-def _fetch_sec_filings(ticker: str) -> dict:
-    """Fetch latest 10-K/10-Q metadata and text snippets from official SEC EDGAR."""
-    out = {
-        "source": "SEC EDGAR",
-        "status": "not_found",
-        "company_name": None,
-        "cik": None,
-        "filings": [],
-        "notes": [],
-    }
-    try:
-        mapping = _http_get_json("https://www.sec.gov/files/company_tickers.json")
-        target = ticker.upper().replace("-", ".")
-        match = None
-        for item in mapping.values():
-            if str(item.get("ticker", "")).upper() == target:
-                match = item
-                break
-        if not match:
-            out["notes"].append("SEC company_tickers.json 未匹配到该 ticker。")
-            return out
-
-        cik = str(match["cik_str"]).zfill(10)
-        out["cik"] = cik
-        out["company_name"] = match.get("title")
-        submissions = _http_get_json(f"https://data.sec.gov/submissions/CIK{cik}.json")
-        recent = submissions.get("filings", {}).get("recent", {})
-        forms = recent.get("form", [])
-        accessions = recent.get("accessionNumber", [])
-        docs = recent.get("primaryDocument", [])
-        dates = recent.get("filingDate", [])
-
-        filings = []
-        for form, accession, doc, filing_date in zip(forms, accessions, docs, dates):
-            if form not in {"10-K", "10-Q", "20-F", "40-F"}:
-                continue
-            accession_nodash = accession.replace("-", "")
-            url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_nodash}/{doc}"
-            snippet = _extract_html_snippet(url)
-            filings.append(
-                {
-                    "form": form,
-                    "filing_date": filing_date,
-                    "accession": accession,
-                    "url": url,
-                    "text_snippet": snippet,
-                }
-            )
-            if len(filings) >= 3:
-                break
-        out["filings"] = filings
-        out["status"] = "ok" if filings else "empty"
-    except Exception as exc:
-        out["status"] = "error"
-        out["notes"].append(str(exc))
-    return out
-
-
-def _extract_html_snippet(url: str, max_chars: int = 5000) -> str | None:
-    try:
-        html = _http_get_text(url)
-        soup = BeautifulSoup(html, "lxml")
-        for tag in soup(["script", "style", "ix:header", "ix:hidden"]):
-            tag.decompose()
-        text = soup.get_text("\n")
-        lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-        clean = "\n".join(line for line in lines if len(line) >= 20)
-        return clean[:max_chars] if clean else None
-    except Exception:
-        return None
-
-
-def _fetch_hk_official_filings(ticker: str) -> dict:
-    """Best-effort HKEX official filing locator.
-
-    HKEX annual reports are usually PDFs behind search pages. The backend
-    provides official search URLs and supplements with Eastmoney financial
-    statements, while avoiding fake parsed values when a PDF cannot be read.
-    """
-    out = {
-        "source": "HKEXnews",
-        "status": "search_link_only",
-        "company_code": ticker,
-        "official_search_url": (
-            "https://www1.hkexnews.hk/search/titlesearch.xhtml"
-            f"?lang=zh&market=SEHK&stockId={ticker.lstrip('0')}"
+def _collect_research_context(symbol: str, market: str) -> dict:
+    currency = {"HK": "HKD", "US": "USD", "CN": "CNY"}.get(market)
+    freshness = "realtime" if market == "HK" else "delayed"
+    result = market_data_service.get_research_context(
+        AssetIdentity(
+            asset_type="stock",
+            market=market,  # type: ignore[arg-type]
+            code=symbol,
+            currency=currency,
         ),
-        "financial_statement_snapshots": {},
-        "notes": ["HKEX PDF 正文暂未自动下载/解析；请以 official_search_url 人工核验最新年报/中报。"],
-    }
-    if ak is None:
-        out["notes"].append("akshare 不可用，无法补充东方财富港股三大报表。")
-        return out
-    try:
-        for statement in ["资产负债表", "利润表", "现金流量表"]:
-            df = ak.stock_financial_hk_report_em(stock=ticker, symbol=statement, indicator="年度")
-            if df is None or df.empty:
-                continue
-            out["financial_statement_snapshots"][statement] = df.head(5).to_dict(orient="records")
-        if out["financial_statement_snapshots"]:
-            out["status"] = "supplemented"
-            out["notes"].append("已补充东方财富港股财务报表快照，非官方源，仅用于辅助。")
-    except Exception as exc:
-        out["notes"].append(f"东方财富港股财报快照抓取失败: {exc}")
-    return out
-
-
-def _fetch_cn_official_filings(ticker: str) -> dict:
-    out = {
-        "source": "巨潮资讯 CNINFO",
-        "status": "empty",
-        "company_code": ticker,
-        "filings": [],
-        "official_search_url": "http://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search",
-        "notes": [],
-    }
-    if ak is None:
-        out["notes"].append("akshare 不可用，无法查询巨潮资讯公告。")
-        return out
-    end = dt.date.today()
-    start = end - dt.timedelta(days=365 * 3)
-    filings = []
-    for category in ["年报", "半年报", "一季报", "三季报"]:
-        try:
-            df = ak.stock_zh_a_disclosure_report_cninfo(
-                symbol=ticker,
-                market="沪深京",
-                category=category,
-                start_date=start.strftime("%Y%m%d"),
-                end_date=end.strftime("%Y%m%d"),
-            )
-            if df is None or df.empty:
-                continue
-            for _, row in df.head(3).iterrows():
-                filings.append({k: str(v) for k, v in row.to_dict().items()})
-        except Exception as exc:
-            out["notes"].append(f"{category} 查询失败: {exc}")
-    out["filings"] = filings[:8]
-    out["status"] = "ok" if filings else "empty"
-    return out
-
-
-def _safe_float(value) -> float | None:
-    try:
-        f = float(value)
-        return f if f == f else None
-    except (TypeError, ValueError):
-        return None
+        freshness=freshness,  # type: ignore[arg-type]
+        verify=True,
+    )
+    return dict(result.data)
 
 
 def _build_analysis_prompt(
