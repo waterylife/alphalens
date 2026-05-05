@@ -463,6 +463,40 @@ def fetch_index_history(symbol: str, years: int = 1) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def fetch_asset_history(symbol: str, years: int = 10) -> pd.DataFrame:
+    """Daily OHLCV history for a US ETF/stock, normalized to dashboard columns."""
+    period = f"{max(1, years)}y"
+
+    def _fetch() -> pd.DataFrame:
+        if not _YF_OK:
+            return pd.DataFrame()
+        try:
+            df = yf.Ticker(symbol).history(period=period, auto_adjust=False)
+            if df is None or df.empty:
+                return pd.DataFrame()
+            df = df.reset_index()
+            df = df.rename(
+                columns={
+                    "Date": "date",
+                    "Open": "open",
+                    "High": "high",
+                    "Low": "low",
+                    "Close": "close",
+                    "Volume": "volume",
+                }
+            )
+            df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+            cols = ["date", "open", "high", "low", "close", "volume"]
+            return df[[c for c in cols if c in df.columns]]
+        except Exception:
+            return pd.DataFrame()
+
+    try:
+        return cache.fetch("us_asset_hist", f"{symbol}:{years}", TTL_DAILY, _fetch)
+    except Exception:
+        return pd.DataFrame()
+
+
 # ─────────────────────────── Search ───────────────────────────
 
 

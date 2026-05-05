@@ -59,6 +59,17 @@ DIVIDEND_INDICES: dict[str, IndexConfig] = {
         lg_symbol=None,
         description="港股通范围内央企背景、股息率较高的股票，反映央企红利资产表现",
     ),
+    "SCHD": IndexConfig(
+        code="SCHD",
+        name="SCHD",
+        full_name="Schwab U.S. Dividend Equity ETF",
+        exchange="us",
+        tx_symbol="SCHD",
+        csindex_symbol="",
+        tr_csindex_symbol=None,
+        lg_symbol=None,
+        description="美国高股息 ETF，跟踪 Dow Jones U.S. Dividend 100 Index，覆盖具备持续分红能力的美股公司",
+    ),
 }
 
 
@@ -82,6 +93,7 @@ BENCHMARKS: dict[str, BenchmarkConfig] = {
     "000300": BenchmarkConfig(code="000300", name="沪深300", tx_symbol="sh000300"),
     "000985": BenchmarkConfig(code="000985", name="中证全指", tx_symbol="sh000985"),
     "000016": BenchmarkConfig(code="000016", name="上证50", tx_symbol="sh000016"),
+    "SPY": BenchmarkConfig(code="SPY", name="SPY 标普500ETF", tx_symbol="SPY"),
 }
 
 

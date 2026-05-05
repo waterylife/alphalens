@@ -245,6 +245,59 @@ export interface PortfolioSummary {
   by_broker: AllocationBucket[];
 }
 
+export interface PortfolioTarget {
+  id: number;
+  category_l1: string;
+  category_l2: string;
+  target_weight_pct: number;
+  target_market_value_cny: number | null;
+  role_positioning: string | null;
+  expected_asset_return_pct: number | null;
+  expected_total_return_pct: number | null;
+  optimistic_asset_return_pct: number | null;
+  optimistic_total_return_pct: number | null;
+  pessimistic_asset_return_pct: number | null;
+  pessimistic_total_return_pct: number | null;
+  sort_order: number;
+  updated_at: string;
+}
+
+export interface PortfolioTargetInput {
+  id?: number | null;
+  category_l1: string;
+  category_l2: string;
+  target_weight_pct: number;
+  target_market_value_cny: number | null;
+  role_positioning: string | null;
+  expected_asset_return_pct: number | null;
+  expected_total_return_pct: number | null;
+  optimistic_asset_return_pct: number | null;
+  optimistic_total_return_pct: number | null;
+  pessimistic_asset_return_pct: number | null;
+  pessimistic_total_return_pct: number | null;
+  sort_order: number;
+}
+
+export interface PortfolioTargetActual {
+  target_id: number;
+  category_l1: string;
+  category_l2: string;
+  target_weight_pct: number;
+  actual_weight_pct: number;
+  gap_pct: number;
+  target_market_value_cny: number | null;
+  actual_market_value_cny: number;
+  gap_market_value_cny: number | null;
+}
+
+export interface PortfolioTargetAnalysis {
+  as_of: string;
+  provider: string;
+  total_market_value_cny: number;
+  conclusion: string;
+  actuals: PortfolioTargetActual[];
+}
+
 export const fetcher = async <T,>(url: string): Promise<T> => {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
@@ -577,8 +630,11 @@ export const api = {
   portfolioImportRows: () => "/api/portfolio/import-rows",
   portfolioTiantianBrowserToken: () => "/api/portfolio/tiantian-browser-token",
   portfolioTags: () => "/api/portfolio/tags",
+  portfolioUpdateTags: () => "/api/portfolio/tags",
   portfolioPatchHolding: (id: number) => `/api/portfolio/holdings/${id}`,
   portfolioRefreshPrices: () => "/api/portfolio/refresh-prices",
+  portfolioTargets: () => "/api/portfolio/targets",
+  portfolioTargetsAnalyze: () => "/api/portfolio/targets/analyze",
 
   // Investment Agent
   agentRecentDocument: () => "/api/agent/documents/recent",

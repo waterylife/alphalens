@@ -71,6 +71,9 @@ export default function Home() {
 
   const selectedCode = selected ?? indices?.[0]?.code ?? null;
 
+  const effectiveBenchmark =
+    selectedCode === "SCHD" ? "SPY" : benchmark === "SPY" ? "000300" : benchmark;
+
   const { data: overview } = useSWR<Overview>(
     selectedCode ? api.overview(selectedCode) : null,
     fetcher
@@ -83,7 +86,7 @@ export default function Home() {
 
   const { data: compare } = useSWR<BenchmarkCompare>(
     selectedCode
-      ? api.benchmarkCompare(selectedCode, benchmark, rangeStart, rangeEnd)
+      ? api.benchmarkCompare(selectedCode, effectiveBenchmark, rangeStart, rangeEnd)
       : null,
     fetcher
   );
@@ -181,7 +184,7 @@ export default function Home() {
                 title="指数走势 · 基准对比"
                 description="与基准指数同期走势、收益、回撤、波动率对比"
                 action={
-                  <BenchmarkSelector value={benchmark} onChange={setBenchmark} />
+                  <BenchmarkSelector value={effectiveBenchmark} onChange={setBenchmark} />
                 }
               >
                 <div className="px-2 pb-2">

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from backend.config import BENCHMARKS, DIVIDEND_INDICES, get_benchmark, get_index
 from backend.data import akshare_client as ak_client
+from backend.data import us_client
 from backend.schemas import (
     BenchmarkCompare,
     BenchmarkMeta,
@@ -44,6 +45,8 @@ def list_indices() -> list[IndexMeta]:
 @router.get("/indices/{code}/overview", response_model=Overview)
 def get_overview(code: str) -> Overview:
     cfg = _get_or_404(code)
+    if _is_us_dividend(cfg):
+        return _get_us_overview(cfg)
 
     price = ak_client.index_daily_price(cfg.tx_symbol)
     last = price.iloc[-1]
@@ -138,6 +141,9 @@ def get_price_history(
     years: int = Query(default=10, ge=1, le=25),
 ) -> dict:
     cfg = _get_or_404(code)
+    if _is_us_dividend(cfg):
+        df = us_client.fetch_asset_history(cfg.tx_symbol, years=years)
+        return {"code": cfg.code, "points": df.to_dict(orient="records")}
     df = ak_client.index_daily_price(cfg.tx_symbol)
     cutoff = (pd.Timestamp.today() - pd.DateOffset(years=years)).strftime("%Y-%m-%d")
     df = df[df["date"] >= cutoff]
@@ -160,6 +166,9 @@ def get_benchmark_compare(
     end: str | None = Query(default=None),
 ) -> BenchmarkCompare:
     cfg = _get_or_404(code)
+    if _is_us_dividend(cfg):
+        benchmark = "SPY" if benchmark not in BENCHMARKS else benchmark
+        return _get_us_benchmark_compare(cfg, benchmark, start, end)
     try:
         bcfg = get_benchmark(benchmark)
     except KeyError:
@@ -218,6 +227,8 @@ def get_valuation_history(
     years: int = Query(default=10, ge=1, le=25),
 ) -> ValuationSeries:
     cfg = _get_or_404(code)
+    if _is_us_dividend(cfg):
+        return _get_us_valuation_history(cfg, years)
     cutoff = (pd.Timestamp.today() - pd.DateOffset(years=years)).strftime("%Y-%m-%d")
 
     pe_ttm_pts: list[TimeSeriesPoint] = []
@@ -285,6 +296,8 @@ def get_yield_spread(
     years: int = Query(default=10, ge=1, le=25),
 ) -> YieldSpreadSeries:
     cfg = _get_or_404(code)
+    if _is_us_dividend(cfg):
+        return _get_us_yield_spread(cfg, years)
     cutoff = (pd.Timestamp.today() - pd.DateOffset(years=years)).strftime("%Y-%m-%d")
 
     bond = ak_client.china_treasury_10y()
@@ -325,6 +338,8 @@ def get_yield_spread(
 @router.get("/indices/{code}/constituents", response_model=Constituents)
 def get_constituents(code: str, limit: int = Query(default=30, ge=1, le=200)) -> Constituents:
     cfg = _get_or_404(code)
+    if _is_us_dividend(cfg):
+        return _get_us_constituents(cfg)
     df = ak_client.index_constituents(cfg.csindex_symbol)
     # sort by weight if present
     if df["weight"].notna().any():
@@ -342,6 +357,160 @@ def get_constituents(code: str, limit: int = Query(default=30, ge=1, le=200)) ->
         for _, row in df.iterrows()
     ]
     return Constituents(code=cfg.code, as_of=str(as_of), total=total, items=items)
+
+
+# ----------------------------- US dividend ETF --------------------------
+
+def _is_us_dividend(cfg) -> bool:
+    return cfg.exchange == "us"
+
+
+def _get_us_overview(cfg) -> Overview:
+    hist = us_client.fetch_asset_history(cfg.tx_symbol, years=2)
+    fundamentals = us_client.fetch_fundamentals(cfg.tx_symbol)
+    close = change_pct = None
+    as_of = pd.Timestamp.today().strftime("%Y-%m-%d")
+    if not hist.empty:
+        last = hist.iloc[-1]
+        prev = hist.iloc[-2] if len(hist) >= 2 else None
+        close = _to_float(last.get("close"))
+        as_of = str(last.get("date"))
+        if close is not None and prev is not None:
+            prev_close = _to_float(prev.get("close"))
+            change_pct = round((close / prev_close - 1) * 100, 2) if prev_close else None
+
+    dividend_yield = _to_float(fundamentals.get("dividend_yield_pct"))
+    pe_ttm = _to_float(fundamentals.get("pe_ttm"))
+    pe_pct = {k: None for k in ("1y", "3y", "5y", "10y", "all")}
+    div_pct = {k: None for k in ("1y", "3y", "5y", "10y", "all")}
+
+    yield_spread = None
+    try:
+        macro = us_client.fetch_macro()
+        us_10y = _to_float(macro.get("us_10y"))
+        if dividend_yield is not None and us_10y is not None:
+            yield_spread = dividend_yield - us_10y
+    except Exception:
+        pass
+
+    return Overview(
+        code=cfg.code,
+        name=cfg.name,
+        as_of=as_of,
+        close=close,
+        change_pct=change_pct,
+        pe_ttm=pe_ttm,
+        pe_static=None,
+        dividend_yield=dividend_yield,
+        yield_spread_bps=yield_spread,
+        dividend_yield_percentile=div_pct,
+        dividend_yield_history_start=None,
+        pe_percentile=pe_pct,
+        pe_history_start=None,
+    )
+
+
+def _get_us_benchmark_compare(
+    cfg,
+    benchmark: str,
+    start: str | None,
+    end: str | None,
+) -> BenchmarkCompare:
+    try:
+        bcfg = get_benchmark(benchmark)
+    except KeyError:
+        bcfg = get_benchmark("SPY")
+
+    idx_df = us_client.fetch_index_history(cfg.tx_symbol, years=25)[["date", "close"]]
+    bm_df = us_client.fetch_index_history(bcfg.tx_symbol, years=25)[["date", "close"]]
+    merged = pd.merge(idx_df, bm_df, on="date", how="inner", suffixes=("_idx", "_bm"))
+    merged = merged.sort_values("date").reset_index(drop=True)
+    if start:
+        merged = merged[merged["date"] >= start]
+    if end:
+        merged = merged[merged["date"] <= end]
+    if merged.empty:
+        raise HTTPException(status_code=500, detail="No overlapping US ETF data")
+
+    dates = merged["date"].tolist()
+    idx_closes = merged["close_idx"].astype(float).values
+    bm_closes = merged["close_bm"].astype(float).values
+    return BenchmarkCompare(
+        start=str(merged.iloc[0]["date"]),
+        end=str(merged.iloc[-1]["date"]),
+        index=CompareSeries(
+            code=cfg.code,
+            name=cfg.name,
+            points=[ComparePoint(date=d, close=float(c)) for d, c in zip(dates, idx_closes)],
+            stats=_range_stats(idx_closes, dates),
+        ),
+        benchmark=CompareSeries(
+            code=bcfg.code,
+            name=bcfg.name,
+            points=[ComparePoint(date=d, close=float(c)) for d, c in zip(dates, bm_closes)],
+            stats=_range_stats(bm_closes, dates),
+        ),
+        yearly=_yearly_rows(merged),
+    )
+
+
+def _get_us_valuation_history(cfg, years: int) -> ValuationSeries:
+    fundamentals = us_client.fetch_fundamentals(cfg.tx_symbol)
+    hist = us_client.fetch_asset_history(cfg.tx_symbol, years=years)
+    if hist.empty:
+        return ValuationSeries(code=cfg.code, pe_ttm=[], pe_static=[], dividend_yield=[], pb=[])
+    dividend_yield = _to_float(fundamentals.get("dividend_yield_pct"))
+    pe_ttm = _to_float(fundamentals.get("pe_ttm"))
+    pb = _to_float(fundamentals.get("pb"))
+    dates = hist["date"].tolist()
+    return ValuationSeries(
+        code=cfg.code,
+        pe_ttm=[TimeSeriesPoint(date=d, value=pe_ttm) for d in dates] if pe_ttm is not None else [],
+        pe_static=[],
+        dividend_yield=(
+            [TimeSeriesPoint(date=d, value=dividend_yield) for d in dates]
+            if dividend_yield is not None
+            else []
+        ),
+        pb=[TimeSeriesPoint(date=d, value=pb) for d in dates] if pb is not None else [],
+    )
+
+
+def _get_us_yield_spread(cfg, years: int) -> YieldSpreadSeries:
+    hist = us_client.fetch_asset_history(cfg.tx_symbol, years=years)
+    fundamentals = us_client.fetch_fundamentals(cfg.tx_symbol)
+    dividend_yield = _to_float(fundamentals.get("dividend_yield_pct"))
+    if hist.empty or dividend_yield is None:
+        return YieldSpreadSeries(code=cfg.code, points=[])
+    try:
+        macro = us_client.fetch_macro()
+        us_10y = _to_float(macro.get("us_10y"))
+    except Exception:
+        us_10y = None
+    if us_10y is None:
+        return YieldSpreadSeries(code=cfg.code, points=[])
+    points = [
+        {
+            "date": row["date"],
+            "dividend_yield": dividend_yield,
+            "yield_10y": us_10y,
+            "spread": dividend_yield - us_10y,
+        }
+        for _, row in hist.iterrows()
+    ]
+    return YieldSpreadSeries(code=cfg.code, points=points)
+
+
+def _get_us_constituents(cfg) -> Constituents:
+    items = [
+        ConstituentItem(stock_code="SCHD", stock_name=cfg.full_name, exchange="US", weight=100.0)
+    ]
+    return Constituents(
+        code=cfg.code,
+        as_of=pd.Timestamp.today().strftime("%Y-%m-%d"),
+        total=1,
+        items=items,
+    )
 
 
 # ----------------------------- helpers ---------------------------------

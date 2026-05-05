@@ -58,6 +58,24 @@ CREATE TABLE IF NOT EXISTS fx_rates (
     as_of      TEXT NOT NULL,
     PRIMARY KEY (pair, as_of)
 );
+
+CREATE TABLE IF NOT EXISTS portfolio_targets (
+    id                              INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_l1                     TEXT NOT NULL,
+    category_l2                     TEXT NOT NULL,
+    target_weight_pct               REAL NOT NULL,
+    target_market_value_cny         REAL,
+    role_positioning                TEXT,
+    expected_asset_return_pct       REAL,
+    expected_total_return_pct       REAL,
+    optimistic_asset_return_pct     REAL,
+    optimistic_total_return_pct     REAL,
+    pessimistic_asset_return_pct    REAL,
+    pessimistic_total_return_pct    REAL,
+    sort_order                      INTEGER NOT NULL DEFAULT 0,
+    updated_at                      TEXT NOT NULL,
+    UNIQUE(category_l1, category_l2)
+);
 """
 
 
@@ -86,5 +104,6 @@ def reset() -> None:
             "DROP TABLE IF EXISTS holdings;"
             "DROP TABLE IF EXISTS sync_runs;"
             "DROP TABLE IF EXISTS fx_rates;"
+            "DROP TABLE IF EXISTS portfolio_targets;"
         )
         conn.executescript(SCHEMA)

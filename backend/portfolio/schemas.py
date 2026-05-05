@@ -147,3 +147,60 @@ class RefreshPricesResult(BaseModel):
 class HoldingTagPatch(BaseModel):
     tag_l1: str | None = None
     tag_l2: str | None = None
+
+
+class PortfolioTarget(BaseModel):
+    id: int
+    category_l1: str
+    category_l2: str
+    target_weight_pct: float
+    target_market_value_cny: float | None = None
+    role_positioning: str | None = None
+    expected_asset_return_pct: float | None = None
+    expected_total_return_pct: float | None = None
+    optimistic_asset_return_pct: float | None = None
+    optimistic_total_return_pct: float | None = None
+    pessimistic_asset_return_pct: float | None = None
+    pessimistic_total_return_pct: float | None = None
+    sort_order: int = 0
+    updated_at: str
+
+
+class PortfolioTargetInput(BaseModel):
+    id: int | None = None
+    category_l1: str
+    category_l2: str
+    target_weight_pct: float
+    target_market_value_cny: float | None = None
+    role_positioning: str | None = None
+    expected_asset_return_pct: float | None = None
+    expected_total_return_pct: float | None = None
+    optimistic_asset_return_pct: float | None = None
+    optimistic_total_return_pct: float | None = None
+    pessimistic_asset_return_pct: float | None = None
+    pessimistic_total_return_pct: float | None = None
+    sort_order: int = 0
+
+
+class PortfolioTargetsUpdate(BaseModel):
+    rows: list[PortfolioTargetInput]
+
+
+class PortfolioTargetActual(BaseModel):
+    target_id: int
+    category_l1: str
+    category_l2: str
+    target_weight_pct: float
+    actual_weight_pct: float
+    gap_pct: float
+    target_market_value_cny: float | None
+    actual_market_value_cny: float
+    gap_market_value_cny: float | None
+
+
+class PortfolioTargetAnalysis(BaseModel):
+    as_of: str
+    provider: str
+    total_market_value_cny: float
+    conclusion: str
+    actuals: list[PortfolioTargetActual]

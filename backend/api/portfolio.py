@@ -8,12 +8,15 @@ import time
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
-from backend.portfolio import db, service, tags as tags_cfg
+from backend.portfolio import db, service, tags as tags_cfg, targets as target_service
 from backend.portfolio.schemas import (
     AllocationBucket,
     FxSnapshot,
     Holding,
     HoldingTagPatch,
+    PortfolioTarget,
+    PortfolioTargetAnalysis,
+    PortfolioTargetsUpdate,
     ImportRequest,
     ImportResult,
     RefreshPricesResult,
@@ -217,6 +220,36 @@ async def parse_screenshot(
 @router.get("/tags", response_model=TagsConfig)
 def get_tags() -> TagsConfig:
     return TagsConfig(**tags_cfg.load_tags())
+
+
+@router.put("/tags", response_model=TagsConfig)
+def update_tags(req: TagsConfig) -> TagsConfig:
+    return TagsConfig(**tags_cfg.save_tags(req.model_dump()))
+
+
+@router.get("/targets", response_model=list[PortfolioTarget])
+def list_portfolio_targets() -> list[PortfolioTarget]:
+    return [PortfolioTarget(**row) for row in target_service.list_targets()]
+
+
+@router.put("/targets", response_model=list[PortfolioTarget])
+def update_portfolio_targets(req: PortfolioTargetsUpdate) -> list[PortfolioTarget]:
+    if not req.rows:
+        raise HTTPException(status_code=400, detail="目标配置不能为空")
+    total_weight = sum(row.target_weight_pct for row in req.rows)
+    if abs(total_weight - 100.0) > 0.5:
+        raise HTTPException(status_code=400, detail=f"Portfolio % 合计应接近 100%，当前为 {total_weight:.2f}%")
+    rows = target_service.replace_targets([row.model_dump() for row in req.rows])
+    return [PortfolioTarget(**row) for row in rows]
+
+
+@router.post("/targets/analyze", response_model=PortfolioTargetAnalysis)
+def analyze_portfolio_targets() -> PortfolioTargetAnalysis:
+    try:
+        result = target_service.analyze_targets_with_gemini()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"目标分析失败: {e}")
+    return PortfolioTargetAnalysis(**result)
 
 
 @router.patch("/holdings/{holding_id}", response_model=Holding)

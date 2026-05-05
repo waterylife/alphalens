@@ -206,9 +206,7 @@ export function HoldingsTable({ rows }: { rows: Holding[] }) {
       )}
 
       <div className="text-xs text-slate-400 px-1">
-        标签可在
-        <code className="px-1 py-0.5 bg-slate-100 rounded mx-1">portfolio_tags.json</code>
-        中配置(改后重启后端生效)
+        标签元数据可在「持仓标签配置」页直接维护，持仓明细和 Portfolio 目标配置共用同一套一级/二级标签。
       </div>
     </div>
   );
